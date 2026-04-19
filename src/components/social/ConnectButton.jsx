@@ -1,0 +1,23 @@
+export default function ConnectButton({ isConnected, isProcessing, onConnect, onReconnect }) {
+  if (!isConnected) {
+    return (
+      <button
+        onClick={onConnect}
+        disabled={isProcessing}
+        className="rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isProcessing ? "Connecting..." : "Connect"}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={onReconnect}
+      disabled={isProcessing}
+      className="rounded-md border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-slate-700/70 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {isProcessing ? "Processing..." : "Reconnect"}
+    </button>
+  );
+}
