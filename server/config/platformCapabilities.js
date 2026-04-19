@@ -47,6 +47,18 @@ export const PLATFORM_CAPABILITIES = {
     accountTypes: ["profile", "organization"],
     badges: ["Posting", "Analytics"],
   },
+  youtube: {
+    oauth: true,
+    posting: true,
+    analytics: true,
+    mediaUpload: true,
+    communityPosting: false,
+    businessSupport: false,
+    webhooks: false,
+    supportLevel: "full",
+    accountTypes: ["channel"],
+    badges: ["Posting", "Analytics", "Media Upload"],
+  },
   x: {
     oauth: true,
     posting: true,

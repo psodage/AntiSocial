@@ -33,7 +33,7 @@ function getClientUrl() {
 }
 
 function normalizePlatform(platform) {
-  if (platform === "google") return "googleBusiness";
+  if (platform === "google") return "youtube";
   return platform;
 }
 
@@ -420,6 +420,7 @@ export async function debugSocialEnvCheck(req, res) {
         appBaseUrl: appConfig.appBaseUrl,
         clientBaseUrl: appConfig.clientBaseUrl,
         googleRedirectUri: appConfig.googleRedirectUri || "missing",
+        googleBusinessRedirectUri: appConfig.googleBusinessRedirectUri || "missing",
         linkedinRedirectUri: appConfig.linkedinRedirectUri || "missing",
         metaRedirectUri: appConfig.metaRedirectUri || "missing",
       },

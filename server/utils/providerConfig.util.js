@@ -16,11 +16,18 @@ export function validateProviderConfig(platform) {
 }
 
 export function getSafeProviderDebugInfo(platform) {
-  if (platform === "youtube" || platform === "googleBusiness") {
+  if (platform === "youtube") {
     return {
       platform,
       clientId: maskIdentifier(process.env.GOOGLE_CLIENT_ID),
       redirectUri: process.env.GOOGLE_REDIRECT_URI || "missing",
+    };
+  }
+  if (platform === "googleBusiness") {
+    return {
+      platform,
+      clientId: maskIdentifier(process.env.GOOGLE_CLIENT_ID),
+      redirectUri: process.env.GOOGLE_BUSINESS_REDIRECT_URI || "missing",
     };
   }
   if (platform === "linkedin") {

@@ -3,7 +3,7 @@ import { SOCIAL_PLATFORMS } from "./providerRegistry.js";
 import { getPlatformCapabilities } from "../../config/platformCapabilities.js";
 
 function normalizePlatform(platform) {
-  if (platform === "google") return "googleBusiness";
+  if (platform === "google") return "youtube";
   return platform;
 }
 
