@@ -13,7 +13,7 @@ const providerEnvMap = {
   googleBusiness: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_BUSINESS_REDIRECT_URI"],
   facebook: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"],
   instagram: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"],
-  threads: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"],
+  threads: ["THREADS_APP_ID", "THREADS_APP_SECRET", "THREADS_REDIRECT_URI"],
   linkedin: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_REDIRECT_URI"],
   x: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET", "TWITTER_REDIRECT_URI"],
   reddit: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_REDIRECT_URI"],
@@ -38,6 +38,7 @@ export function getAppConfig() {
     discordRedirectUri: process.env.DISCORD_REDIRECT_URI,
     linkedinRedirectUri: process.env.LINKEDIN_REDIRECT_URI,
     metaRedirectUri: process.env.META_REDIRECT_URI,
+    threadsRedirectUri: process.env.THREADS_REDIRECT_URI,
   };
 }
 

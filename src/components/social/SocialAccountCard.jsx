@@ -7,7 +7,8 @@ import { PLATFORM_CAPABILITY_MATRIX } from "../../data/socialPlatforms";
 
 export default function SocialAccountCard({ platformConfig, account, isProcessing, onConnect, onReconnect, onDisconnect }) {
   const Icon = platformConfig.icon;
-  const displayName = account?.accountName || account?.username || "No account linked";
+  const isConnected = !!account?.isConnected;
+  const displayName = isConnected ? account?.accountName || account?.username || "No Account linked" : "No Account linked";
   const firstPage = Array.isArray(account?.entities) ? account.entities.find((item) => item.entityType === "page") : null;
   const linkedInstagram = account?.metadata?.linkedInstagramAccount || account?.metadata?.linkedFacebookPage || null;
   const capability = PLATFORM_CAPABILITY_MATRIX[platformConfig.key];
@@ -30,7 +31,7 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
             <p className="text-xs text-slate-400">{platformConfig.hint}</p>
           </div>
         </div>
-        <ConnectionStatusBadge isConnected={!!account?.isConnected} />
+        <ConnectionStatusBadge isConnected={isConnected} />
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -41,29 +42,30 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
         />
         <div>
           <p className="text-sm font-medium text-slate-100">{displayName}</p>
-          <p className="text-xs text-slate-400">
-            {account?.entityType ? `Type: ${account.entityType}` : "Account type unavailable"}
-          </p>
+          <p className="text-xs text-slate-400">{isConnected && account?.entityType ? `Type: ${account.entityType}` : "Account type unavailable"}</p>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {badges.map((badge) => (
-          <span key={`${platformConfig.key}-${badge}`} className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300">
+          <span
+            key={`${platformConfig.key}-${badge}`}
+            className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300"
+          >
             {badge}
           </span>
         ))}
       </div>
 
       <div className="mt-4 space-y-1">
-        {platformConfig.key === "facebook" ? (
+        {isConnected && platformConfig.key === "facebook" ? (
           <p className="text-xs text-slate-400">
             {firstPage?.name ? `Page: ${firstPage.name}` : "Page: Not found"}
             {" - "}
             {linkedInstagram?.username || linkedInstagram?.name ? "Instagram linked" : "Instagram not linked"}
           </p>
         ) : null}
-        {platformConfig.key === "instagram" ? (
+        {isConnected && platformConfig.key === "instagram" ? (
           <p className="text-xs text-slate-400">
             {linkedInstagram?.pageName ? `Linked Page: ${linkedInstagram.pageName}` : "Linked Page: Not available"}
           </p>
@@ -73,23 +75,16 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
       </div>
 
       <div className="mt-4 flex gap-2">
-        <ConnectButton
-          isConnected={!!account?.isConnected}
-          isProcessing={isProcessing || !oauthSupported}
-          onConnect={onConnect}
-          onReconnect={onReconnect}
-        />
+        <ConnectButton isConnected={isConnected} isProcessing={isProcessing || !oauthSupported} onConnect={onConnect} onReconnect={onReconnect} />
         <button
           onClick={onDisconnect}
-          disabled={!account?.isConnected || isProcessing}
+          disabled={!isConnected || isProcessing}
           className="rounded-md border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/70 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Disconnect
         </button>
       </div>
-      {!oauthSupported ? (
-        <p className="mt-2 text-xs text-amber-300">Bot/manual setup required. OAuth is not available for this platform.</p>
-      ) : null}
+      {!oauthSupported ? <p className="mt-2 text-xs text-amber-300">Bot/manual setup required. OAuth is not available for this platform.</p> : null}
     </motion.article>
   );
 }

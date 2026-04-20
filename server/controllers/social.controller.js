@@ -14,7 +14,7 @@ import {
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
 
-const META_PLATFORMS = new Set(["facebook", "instagram", "threads"]);
+const META_PLATFORMS = new Set(["facebook", "instagram"]);
 const META_UPGRADE_SCOPE_SETS = {
   pages_show_list: META_SCOPE_SETS.pages,
   instagram_basic: [...META_SCOPE_SETS.pages, ...META_SCOPE_SETS.instagramBasic],
@@ -69,6 +69,12 @@ function mapCallbackReason(callbackError) {
   return "oauth_callback_failed";
 }
 
+function createCallbackError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function resolveMetaUpgradeScopes(scopeSet) {
   const normalizedScopeSet = (scopeSet || "all").toString().toLowerCase();
   const scopes = META_UPGRADE_SCOPE_SETS[normalizedScopeSet];
@@ -121,8 +127,8 @@ export async function connectSocialPlatform(req, res) {
 
 export async function connectMetaPlatform(req, res) {
   const requestedMetaPlatform = (req.query?.platform || "facebook").toString().toLowerCase();
-  if (!["facebook", "instagram", "threads"].includes(requestedMetaPlatform)) {
-    return errorResponse(res, "Invalid Meta platform. Use facebook, instagram, or threads.", 400);
+  if (!["facebook", "instagram"].includes(requestedMetaPlatform)) {
+    return errorResponse(res, "Invalid Meta platform. Use facebook or instagram.", 400);
   }
   const flow = req.query?.flow === "onboarding" ? "onboarding" : "settings";
   try {
@@ -159,8 +165,8 @@ export async function connectMetaPlatform(req, res) {
 
 export async function connectMetaUpgradePlatform(req, res) {
   const requestedMetaPlatform = (req.query?.platform || "facebook").toString().toLowerCase();
-  if (!["facebook", "instagram", "threads"].includes(requestedMetaPlatform)) {
-    return errorResponse(res, "Invalid Meta platform. Use facebook, instagram, or threads.", 400);
+  if (!["facebook", "instagram"].includes(requestedMetaPlatform)) {
+    return errorResponse(res, "Invalid Meta platform. Use facebook or instagram.", 400);
   }
 
   try {
@@ -289,6 +295,12 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
           },
           tokenData,
         });
+      }
+      if (platform === "instagram" && !linkedInstagram?.profile?.platformUserId) {
+        throw createCallbackError(
+          "No linked Instagram professional account found for the connected Facebook Pages.",
+          "no_instagram_professional_account"
+        );
       }
     } else {
       const profile = await provider.getProfile(tokenData.accessToken);

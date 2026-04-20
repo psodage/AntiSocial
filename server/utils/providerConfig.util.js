@@ -65,6 +65,13 @@ export function getSafeProviderDebugInfo(platform) {
       redirectUri: process.env.DISCORD_REDIRECT_URI || "missing",
     };
   }
+  if (platform === "threads") {
+    return {
+      platform,
+      clientId: maskIdentifier(process.env.THREADS_APP_ID),
+      redirectUri: process.env.THREADS_REDIRECT_URI || "missing",
+    };
+  }
   return {
     platform,
     clientId: maskIdentifier(process.env.META_APP_ID),

@@ -1,17 +1,199 @@
-import { createOAuthService } from "./sharedOAuth.js";
+import axios from "axios";
 import { resolveProviderRedirectUri } from "../../utils/redirectUri.util.js";
 
-const threadsService = createOAuthService({
+const THREADS_API_VERSION = "v1.0";
+const THREADS_AUTH_URL = "https://threads.net/oauth/authorize";
+const THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token";
+const THREADS_GRAPH_BASE_URL = `https://graph.threads.net/${THREADS_API_VERSION}`;
+
+const THREADS_ALLOWED_SCOPES = new Set([
+  "threads_basic",
+  "threads_content_publish",
+  "threads_read_replies",
+  "threads_manage_replies",
+  "threads_manage_insights",
+]);
+
+function maskAppId(value) {
+  if (!value) return "missing";
+  return `***${value.slice(-8)}`;
+}
+
+function summarizeAxiosError(error) {
+  return {
+    message: error?.message || "Unknown request error",
+    status: error?.response?.status || null,
+    statusText: error?.response?.statusText || null,
+    data: error?.response?.data || null,
+  };
+}
+
+function createThreadsError(message, code, status = 400, details = null) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  error.details = details;
+  return error;
+}
+
+function normalizeRequestedScopes(inputScopes) {
+  const requested = Array.isArray(inputScopes) ? inputScopes : [];
+  const cleaned = requested
+    .map((scope) => (scope || "").toString().trim())
+    .filter(Boolean)
+    .filter((scope) => THREADS_ALLOWED_SCOPES.has(scope));
+
+  // Threads docs require threads_basic for all Threads API calls.
+  const merged = Array.from(new Set(["threads_basic", ...cleaned]));
+  return merged;
+}
+
+function ensureThreadsConfig() {
+  const appId = process.env.THREADS_APP_ID;
+  const appSecret = process.env.THREADS_APP_SECRET;
+  const redirectUri = resolveProviderRedirectUri("threads");
+  if (!appId || !appSecret || !redirectUri) {
+    throw createThreadsError(
+      "Threads OAuth is not configured.",
+      "threads_config_missing",
+      400,
+      ["THREADS_APP_ID", "THREADS_APP_SECRET", "THREADS_REDIRECT_URI"]
+    );
+  }
+  return { appId, appSecret, redirectUri };
+}
+
+async function threadsGraphGet(path, accessToken, params = {}) {
+  try {
+    const response = await axios.get(`${THREADS_GRAPH_BASE_URL}${path}`, {
+      params: { ...params, access_token: accessToken },
+    });
+    return response.data;
+  } catch (error) {
+    throw createThreadsError(
+      "Threads API request failed.",
+      "threads_graph_error",
+      error?.response?.status || 500,
+      error?.response?.data || null
+    );
+  }
+}
+
+const threadsService = {
   platform: "threads",
-  clientId: process.env.META_APP_ID,
-  clientSecret: process.env.META_APP_SECRET,
-  redirectUri: resolveProviderRedirectUri("threads"),
-  authUrl: "https://www.facebook.com/v20.0/dialog/oauth",
-  tokenUrl: "https://graph.facebook.com/v20.0/oauth/access_token",
-  profileUrl: "https://graph.facebook.com/me?fields=id,name,picture",
-  scopes: ["threads_basic", "threads_content_publish", "threads_manage_insights"],
-  scopeSeparator: ",",
-  additionalAuthParams: { display: "popup" },
-});
+  defaultScopes: ["threads_basic"],
+  allowedScopes: Array.from(THREADS_ALLOWED_SCOPES),
+
+  validateConfig() {
+    try {
+      ensureThreadsConfig();
+      return { valid: true, missing: [] };
+    } catch (error) {
+      return { valid: false, missing: error?.details || ["THREADS_APP_ID", "THREADS_APP_SECRET", "THREADS_REDIRECT_URI"] };
+    }
+  },
+
+  getAuthUrl(state, requestedScopes = null) {
+    const { appId, redirectUri } = ensureThreadsConfig();
+    const scopes = normalizeRequestedScopes(requestedScopes || this.defaultScopes);
+    const params = new URLSearchParams({
+      client_id: appId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: scopes.join(","),
+      state,
+    });
+    console.info("[oauth:threads:auth-url]", {
+      platform: "threads",
+      appId: maskAppId(appId),
+      redirectUri,
+      authEndpoint: THREADS_AUTH_URL,
+      scopeCount: scopes.length,
+      scopes,
+    });
+    return `${THREADS_AUTH_URL}?${params.toString()}`;
+  },
+
+  getAdvancedAuthUrl(state, additionalScopes = []) {
+    const scopes = normalizeRequestedScopes(additionalScopes);
+    return this.getAuthUrl(state, scopes);
+  },
+
+  async exchangeCodeForToken(code) {
+    const { appId, appSecret, redirectUri } = ensureThreadsConfig();
+    try {
+      const response = await axios.post(
+        THREADS_TOKEN_URL,
+        new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+          code,
+        }),
+        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      );
+      const data = response.data || {};
+      return {
+        accessToken: data.access_token || "",
+        refreshToken: "",
+        tokenType: data.token_type || "Bearer",
+        expiresIn: data.expires_in || 60 * 60,
+        scopes: Array.isArray(data?.scope) ? data.scope : data.scope ? data.scope.split(/[,\s]+/).filter(Boolean) : this.defaultScopes,
+      };
+    } catch (error) {
+      console.error("[oauth:threads:token:error]", {
+        platform: "threads",
+        tokenEndpoint: THREADS_TOKEN_URL,
+        redirectUri,
+        appId: maskAppId(appId),
+        error: summarizeAxiosError(error),
+      });
+      const providerError = error?.response?.data?.error || error?.response?.data || null;
+      throw createThreadsError(
+        "Token exchange failed for Threads.",
+        "threads_token_exchange_failed",
+        error?.response?.status || 400,
+        providerError
+      );
+    }
+  },
+
+  async getProfile(accessToken) {
+    const fields = [
+      "id",
+      "username",
+      "name",
+      "threads_profile_picture_url",
+      "threads_biography",
+      "is_verified",
+    ].join(",");
+    const profile = await threadsGraphGet("/me", accessToken, { fields });
+    return {
+      platformUserId: profile?.id?.toString() || "",
+      accountName: profile?.name || profile?.username || "",
+      username: profile?.username || "",
+      email: "",
+      profileImage: profile?.threads_profile_picture_url || "",
+      entityType: "profile",
+      entityId: profile?.id?.toString() || "",
+      capabilities: ["posting", "analytics"],
+      metadata: {
+        rawProfile: profile,
+        threadsBiography: profile?.threads_biography || "",
+        isVerified: Boolean(profile?.is_verified),
+      },
+    };
+  },
+
+  async refreshTokenIfNeeded() {
+    // Threads long-lived token exchange can be added later (th_exchange_token).
+    return null;
+  },
+
+  async disconnectAccount() {
+    return { disconnected: true };
+  },
+};
 
 export default threadsService;

@@ -6,6 +6,7 @@ export function resolveProviderRedirectUri(platform) {
   const map = {
     googleBusiness: process.env.GOOGLE_BUSINESS_REDIRECT_URI || `${config.appBaseUrl}/api/social/googleBusiness/callback`,
     youtube: process.env.GOOGLE_REDIRECT_URI || `${config.appBaseUrl}/api/social/youtube/callback`,
+    threads: process.env.THREADS_REDIRECT_URI || `${config.appBaseUrl}/api/social/threads/callback`,
     linkedin: process.env.LINKEDIN_REDIRECT_URI || `${config.appBaseUrl}/api/social/linkedin/callback`,
     x: process.env.TWITTER_REDIRECT_URI || `${config.appBaseUrl}/api/social/x/callback`,
     reddit: process.env.REDDIT_REDIRECT_URI || `${config.appBaseUrl}/api/social/reddit/callback`,

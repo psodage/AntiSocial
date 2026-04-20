@@ -23,6 +23,9 @@ export function getSocialOAuthErrorMessage(reason, platform) {
   const normalized = (reason || "").toLowerCase();
   if (!normalized) return `Failed to connect ${platform}. Please retry.`;
   if (normalized.includes("invalid_scope")) {
+    if ((platform || "").toLowerCase() === "threads") {
+      return "Threads rejected the requested scopes. This usually happens when Threads is accidentally routed through Facebook Login or your Threads app is missing approved permissions. Please retry and verify your Threads app settings + redirect URI.";
+    }
     return "Meta rejected one or more permissions. Please retry and verify your app is configured for requested scopes.";
   }
   if (normalized.includes("missing_code")) {
@@ -68,7 +71,7 @@ export async function startSocialConnect(platform, options = {}) {
   try {
     const params = new URLSearchParams();
     const normalized = (platform || "").toLowerCase();
-    const isMetaPlatform = ["facebook", "instagram", "threads"].includes(normalized);
+    const isMetaPlatform = ["facebook", "instagram"].includes(normalized);
     if (isMetaPlatform) {
       params.set("platform", normalized);
     }

@@ -11,12 +11,16 @@ import {
   refreshSocialPlatform,
   socialPlatformStatus,
 } from "../controllers/social.controller.js";
+import { connectThreads, disconnectThreads, threadsOauthCallback } from "../controllers/threads.controller.js";
 
 export function createSocialRoutes(requireAuth) {
   const router = Router();
 
   router.get("/debug/env-check", requireAuth, debugSocialEnvCheck);
   router.get("/accounts", requireAuth, listSocialAccounts);
+  router.get("/threads/connect", requireAuth, connectThreads);
+  router.get("/threads/callback", threadsOauthCallback);
+  router.post("/threads/disconnect", requireAuth, disconnectThreads);
   router.get("/meta/connect", requireAuth, connectMetaPlatform);
   router.get("/meta/upgrade/connect", requireAuth, connectMetaUpgradePlatform);
   router.get("/meta/callback", metaOauthCallback);

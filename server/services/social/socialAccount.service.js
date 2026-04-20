@@ -1,6 +1,7 @@
 import SocialAccount from "../../models/SocialAccount.js";
 import { SOCIAL_PLATFORMS } from "./providerRegistry.js";
 import { getPlatformCapabilities } from "../../config/platformCapabilities.js";
+import { encryptToken } from "../../utils/crypto.js";
 
 function normalizePlatform(platform) {
   if (platform === "google") return "youtube";
@@ -75,27 +76,6 @@ export async function upsertConnectedAccount({ userId, platform, profile, tokenD
   const normalizedPlatform = normalizePlatform(platform);
   const entityType = profile.entityType || "profile";
   const entityId = profile.entityId || profile.platformUserId;
-  const existingAccount = await SocialAccount.findOne({ userId, platform: normalizedPlatform, entityType, entityId });
-  const account =
-    existingAccount || new SocialAccount({ userId, platform: normalizedPlatform, platformUserId: profile.platformUserId, entityType, entityId });
-
-  account.platformUserId = profile.platformUserId;
-  account.entityType = entityType;
-  account.entityId = entityId;
-  account.accountName = profile.accountName || "";
-  account.username = profile.username || "";
-  account.email = profile.email || "";
-  account.profileImage = profile.profileImage || "";
-  account.tokenType = tokenData.tokenType || "Bearer";
-  account.expiresAt = tokenData.expiresIn ? new Date(Date.now() + tokenData.expiresIn * 1000) : null;
-  account.scopes = tokenData.scopes || [];
-  account.isConnected = true;
-  account.isPrimary = profile.isPrimary !== false;
-  account.capabilities = Array.isArray(profile.capabilities) ? profile.capabilities : profile?.metadata?.capabilities || [];
-  account.metadata = profile.metadata || {};
-  account.lastSyncedAt = new Date();
-  account.setEncryptedAccessToken(tokenData.accessToken || "");
-  account.setEncryptedRefreshToken(tokenData.refreshToken || "");
 
   const alreadyLinked = await SocialAccount.findOne({
     platform: normalizedPlatform,
@@ -106,25 +86,47 @@ export async function upsertConnectedAccount({ userId, platform, profile, tokenD
     throw new Error("This social account is already linked to another AntiSocial user.");
   }
 
-  await account.save();
+  const now = new Date();
+  const account = await SocialAccount.findOneAndUpdate(
+    { userId, platform: normalizedPlatform, entityType, entityId },
+    {
+      $set: {
+        platformUserId: profile.platformUserId,
+        entityType,
+        entityId,
+        accountName: profile.accountName || "",
+        username: profile.username || "",
+        email: profile.email || "",
+        profileImage: profile.profileImage || "",
+        tokenType: tokenData.tokenType || "Bearer",
+        expiresAt: tokenData.expiresIn ? new Date(Date.now() + tokenData.expiresIn * 1000) : null,
+        scopes: tokenData.scopes || [],
+        isConnected: true,
+        isPrimary: profile.isPrimary !== false,
+        capabilities: Array.isArray(profile.capabilities) ? profile.capabilities : profile?.metadata?.capabilities || [],
+        metadata: profile.metadata || {},
+        lastSyncedAt: now,
+        accessToken: encryptToken(tokenData.accessToken || ""),
+        refreshToken: encryptToken(tokenData.refreshToken || ""),
+      },
+      $setOnInsert: {
+        userId,
+        platform: normalizedPlatform,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+
   return mapAccount(account);
 }
 
 export async function disconnectAccount(userId, platform) {
   const normalizedPlatform = normalizePlatform(platform);
-  const accounts = await SocialAccount.find({ userId, platform: normalizedPlatform });
-  if (!accounts.length) return { platform: normalizedPlatform, isConnected: false };
-
-  await Promise.all(
-    accounts.map(async (account) => {
-      account.isConnected = false;
-      account.accessToken = "";
-      account.refreshToken = "";
-      account.expiresAt = null;
-      account.lastSyncedAt = new Date();
-      await account.save();
-    })
-  );
+  await SocialAccount.deleteMany({ userId, platform: normalizedPlatform });
   return { platform: normalizedPlatform, isConnected: false };
 }
 

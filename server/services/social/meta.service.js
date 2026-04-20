@@ -38,8 +38,9 @@ function normalizeMetaAxiosError(error, fallbackCode = "meta_request_failed") {
 }
 
 function ensureMetaConfig(platform) {
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
+  const isThreads = platform === "threads";
+  const appId = isThreads ? process.env.THREADS_APP_ID : process.env.META_APP_ID;
+  const appSecret = isThreads ? process.env.THREADS_APP_SECRET : process.env.META_APP_SECRET;
   const redirectUri = resolveProviderRedirectUri(platform);
 
   if (!appId || !appSecret || !redirectUri) {
@@ -143,6 +144,9 @@ export function createMetaOAuthService({
         ensureMetaConfig(platform);
         return { valid: true, missing: [] };
       } catch {
+        if (platform === "threads") {
+          return { valid: false, missing: ["THREADS_APP_ID", "THREADS_APP_SECRET", "THREADS_REDIRECT_URI"] };
+        }
         return { valid: false, missing: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"] };
       }
     },
@@ -257,11 +261,12 @@ export function createMetaOAuthService({
       }
 
       try {
+        const { appId, appSecret } = ensureMetaConfig(platform);
         const response = await axios.get(`${META_GRAPH_BASE_URL}/oauth/access_token`, {
           params: {
             grant_type: "fb_exchange_token",
-            client_id: process.env.META_APP_ID,
-            client_secret: process.env.META_APP_SECRET,
+            client_id: appId,
+            client_secret: appSecret,
             fb_exchange_token: accessToken,
           },
         });
