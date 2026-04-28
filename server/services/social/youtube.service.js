@@ -67,11 +67,23 @@ const youtubeService = {
     try {
       const oauth2 = google.oauth2({ auth: oauth2Client, version: "v2" });
       const youtube = google.youtube({ auth: oauth2Client, version: "v3" });
-      const [{ data: userInfo }, { data: channels }] = await Promise.all([
-        oauth2.userinfo.get(),
-        youtube.channels.list({ part: ["snippet"], mine: true, maxResults: 1 }),
-      ]);
-      const channel = channels.items?.[0];
+      const { data: userInfo } = await oauth2.userinfo.get();
+
+      // Keep OAuth linking resilient even when YouTube channel lookup is unavailable
+      // (for example, API not enabled or channel access temporarily restricted).
+      let channel = null;
+      try {
+        const { data: channels } = await youtube.channels.list({
+          part: ["snippet"],
+          mine: true,
+          maxResults: 1,
+        });
+        channel = channels.items?.[0] || null;
+      } catch (channelError) {
+        console.warn("[oauth:youtube:channel:warning]", {
+          message: channelError?.message,
+        });
+      }
       return {
         platformUserId: channel?.id || userInfo.id || "",
         accountName: channel?.snippet?.title || userInfo.name || "",

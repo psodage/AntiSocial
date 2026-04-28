@@ -14,7 +14,7 @@ import {
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
 
-const META_PLATFORMS = new Set(["facebook"]);
+const META_PLATFORMS = new Set(["facebook", "instagram"]);
 const META_UPGRADE_SCOPE_SETS = {
   pages_show_list: META_SCOPE_SETS.pages,
   instagram_basic: [...META_SCOPE_SETS.pages, ...META_SCOPE_SETS.instagramBasic],
