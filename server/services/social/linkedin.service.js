@@ -1,7 +1,7 @@
 import { createOAuthService } from "./sharedOAuth.js";
 import { resolveProviderRedirectUri } from "../../utils/redirectUri.util.js";
 
-const defaultScopes = ["r_liteprofile", "r_emailaddress", "w_member_social"];
+const defaultScopes = ["r_liteprofile", "w_member_social"];
 const configuredScopes = process.env.LINKEDIN_SCOPES
   ? process.env.LINKEDIN_SCOPES.split(/[,\s]+/).filter(Boolean)
   : defaultScopes;
