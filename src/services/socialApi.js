@@ -23,6 +23,9 @@ export function getSocialOAuthErrorMessage(reason, platform) {
   const normalized = (reason || "").toLowerCase();
   if (!normalized) return `Failed to connect ${platform}. Please retry.`;
   if (normalized.includes("invalid_scope")) {
+    if ((platform || "").toLowerCase() === "instagram") {
+      return "Instagram rejected one or more requested permissions. Verify Instagram Login products/scopes in your app settings and retry.";
+    }
     if ((platform || "").toLowerCase() === "threads") {
       return "Threads rejected the requested scopes. This usually happens when Threads is accidentally routed through Facebook Login or your Threads app is missing approved permissions. Please retry and verify your Threads app settings + redirect URI.";
     }
@@ -50,6 +53,9 @@ export function getSocialOAuthErrorMessage(reason, platform) {
     return "OAuth session expired or became invalid. Start the connection again.";
   }
   if (normalized.includes("invalid_client")) {
+    if ((platform || "").toLowerCase() === "instagram") {
+      return "Instagram OAuth client configuration is invalid. Verify INSTAGRAM_CLIENT_ID, INSTAGRAM_CLIENT_SECRET, and INSTAGRAM_REDIRECT_URI.";
+    }
     return "OAuth client configuration is invalid. Verify provider credentials and redirect URI.";
   }
   if (normalized.includes("token_error")) {

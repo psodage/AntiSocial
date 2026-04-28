@@ -4,6 +4,14 @@ import { decryptToken, encryptToken } from "../utils/crypto.js";
 const socialAccountSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    connectedByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      index: true,
+      default() {
+        return this.userId;
+      },
+    },
     platform: {
       type: String,
       required: true,

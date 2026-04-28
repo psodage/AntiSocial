@@ -29,6 +29,7 @@ function mapAccount(account) {
     isConnected: account.isConnected,
     isPrimary: Boolean(account.isPrimary),
     parentAccountId: account.parentAccountId || null,
+    connectedByUserId: account.connectedByUserId || account.userId,
     metadata: account.metadata || {},
     lastSyncedAt: account.lastSyncedAt,
     createdAt: account.createdAt,
@@ -108,6 +109,7 @@ export async function upsertConnectedAccount({ userId, platform, profile, tokenD
         lastSyncedAt: now,
         accessToken: encryptToken(tokenData.accessToken || ""),
         refreshToken: encryptToken(tokenData.refreshToken || ""),
+        connectedByUserId: userId,
       },
       $setOnInsert: {
         userId,

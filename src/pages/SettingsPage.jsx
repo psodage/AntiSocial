@@ -45,6 +45,7 @@ export default function SettingsPage() {
       pendingPlatforms,
     };
   }, [accounts, accountsByPlatform]);
+  const instagramAccount = accountsByPlatform.instagram || { isConnected: false };
 
   const addAuditEntry = (entry) => {
     setAuditLog((prev) => [{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), ...entry }, ...prev].slice(0, 8));
@@ -110,7 +111,9 @@ export default function SettingsPage() {
       return;
     }
     setProcessingPlatform(platform);
-    setToast({ message: `Redirecting to ${platform} OAuth...` });
+    const redirectMessage =
+      platform === "instagram" ? "Redirecting to Instagram Login..." : `Redirecting to ${platform} OAuth...`;
+    setToast({ message: redirectMessage });
     try {
       const data = await startSocialConnect(platform);
       window.location.href = data.url;
@@ -220,6 +223,17 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-400">Pending platforms</p>
             <p className="mt-1 text-2xl font-semibold text-sky-300">{summary.pendingPlatforms}</p>
           </div>
+        </div>
+        <div className="mb-5 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3">
+          <p className="text-xs uppercase tracking-wide text-fuchsia-200">Instagram</p>
+          <p className="mt-1 text-sm text-white">
+            {instagramAccount.isConnected
+              ? `Connected as ${instagramAccount.username || instagramAccount.accountName || "instagram user"}`
+              : "Not connected"}
+          </p>
+          <p className="mt-1 text-xs text-fuchsia-100/80">
+            Instagram uses direct Instagram Login OAuth and is managed independently from Facebook connection.
+          </p>
         </div>
 
         {loadingAccounts ? (

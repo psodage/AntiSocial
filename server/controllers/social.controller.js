@@ -14,7 +14,7 @@ import {
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
 
-const META_PLATFORMS = new Set(["facebook", "instagram"]);
+const META_PLATFORMS = new Set(["facebook"]);
 const META_UPGRADE_SCOPE_SETS = {
   pages_show_list: META_SCOPE_SETS.pages,
   instagram_basic: [...META_SCOPE_SETS.pages, ...META_SCOPE_SETS.instagramBasic],
@@ -67,12 +67,6 @@ function mapCallbackReason(callbackError) {
   if (normalized.includes("already linked to another antisocial user")) return "account_already_linked";
   if (normalized.includes("token")) return "token_error";
   return "oauth_callback_failed";
-}
-
-function createCallbackError(message, code) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
 }
 
 function resolveMetaUpgradeScopes(scopeSet) {
@@ -287,26 +281,6 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
         },
         tokenData,
       });
-
-      if (linkedInstagram?.profile?.platformUserId) {
-        await upsertConnectedAccount({
-          userId: new ObjectId(decodedState.userId),
-          platform: "instagram",
-          profile: {
-            ...linkedInstagram.profile,
-            entityType: "professional",
-            entityId: linkedInstagram.profile.platformUserId,
-            capabilities: ["posting", "analytics"],
-          },
-          tokenData,
-        });
-      }
-      if (platform === "instagram" && !linkedInstagram?.profile?.platformUserId) {
-        throw createCallbackError(
-          "No linked Instagram professional account found for the connected Facebook Pages.",
-          "no_instagram_professional_account"
-        );
-      }
     } else {
       const profile = await provider.getProfile(tokenData.accessToken);
       if (!profile?.platformUserId) {
