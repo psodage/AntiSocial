@@ -1,7 +1,21 @@
 import { NavLink } from "react-router-dom";
 import { ROUTES } from "../data/constants";
+import { SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
+import { useApp } from "../context/AppContext";
 
 export default function Sidebar({ open, onClose, onLogout }) {
+  const { connectedAccounts } = useApp();
+  const connectedPlatformMenus = connectedAccounts
+    .filter((account) => account.isConnected)
+    .map((account) => {
+      const platformConfig = SOCIAL_PLATFORM_CONFIGS.find((platform) => platform.key === account.platform);
+      return {
+        key: account.platform,
+        label: platformConfig?.label || account.platform,
+        path: `/connected-platforms/${account.platform}`,
+      };
+    });
+
   return (
     <>
       <aside
@@ -18,20 +32,41 @@ export default function Sidebar({ open, onClose, onLogout }) {
         </div>
         <nav className="flex flex-1 flex-col gap-1">
           {ROUTES.map((route) => (
-            <NavLink
-              key={route.key}
-              to={route.path}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `rounded-md px-3 py-2 text-sm font-medium ${
-                  isActive
-                    ? "bg-brand-50 text-brand-600 dark:bg-brand-500/20 dark:text-brand-100"
-                    : "text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                }`
-              }
-            >
-              {route.label}
-            </NavLink>
+            <div key={route.key}>
+              <NavLink
+                to={route.path}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-2 text-sm font-medium ${
+                    isActive
+                      ? "bg-brand-50 text-brand-600 dark:bg-brand-500/20 dark:text-brand-100"
+                      : "text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  }`
+                }
+              >
+                {route.label}
+              </NavLink>
+              {route.key === "connected-platforms" && connectedPlatformMenus.length > 0 ? (
+                <div className="mt-1 space-y-1 border-l border-slate-300 pl-3 dark:border-slate-700">
+                  {connectedPlatformMenus.map((platform) => (
+                    <NavLink
+                      key={platform.key}
+                      to={platform.path}
+                      onClick={onClose}
+                      className={({ isActive }) =>
+                        `block rounded-md px-3 py-1.5 text-xs font-medium ${
+                          isActive
+                            ? "bg-brand-50 text-brand-600 dark:bg-brand-500/20 dark:text-brand-100"
+                            : "text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }`
+                      }
+                    >
+                      {platform.label}
+                    </NavLink>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ))}
         </nav>
         <button

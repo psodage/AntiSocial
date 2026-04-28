@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { STORAGE_KEYS } from "../data/constants";
 import { loginUser, registerUser, updateOnboardingStatus, updateUser } from "../services/userApi";
+import { getSocialAccounts } from "../services/socialApi";
 
 const AppContext = createContext(null);
 
@@ -55,7 +56,14 @@ export function AppProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme);
   const [user, setUser] = useState(getInitialUser);
   const [connections, setConnections] = useState(getInitialConnections);
+  const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [toast, setToast] = useState(null);
+
+  const refreshConnectedAccounts = async () => {
+    const accounts = await getSocialAccounts();
+    setConnectedAccounts(accounts);
+    return accounts;
+  };
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -99,8 +107,16 @@ export function AppProvider({ children }) {
     localStorage.removeItem(STORAGE_KEYS.auth);
     localStorage.removeItem(STORAGE_KEYS.authToken);
     localStorage.removeItem(STORAGE_KEYS.onboardingCompleted);
+    setConnectedAccounts([]);
     setIsAuthed(false);
   };
+
+  useEffect(() => {
+    if (!isAuthed) return;
+    refreshConnectedAccounts().catch(() => {
+      setConnectedAccounts([]);
+    });
+  }, [isAuthed]);
 
   const saveSettings = async ({ name, email, password }) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -155,6 +171,7 @@ export function AppProvider({ children }) {
       user,
       isOnboardingCompleted: Boolean(user.onboardingCompleted),
       connections,
+      connectedAccounts,
       toast,
       setToast,
       toggleTheme,
@@ -164,8 +181,9 @@ export function AppProvider({ children }) {
       saveSettings,
       setConnectionStatus,
       completeOnboarding,
+      refreshConnectedAccounts,
     }),
-    [isAuthed, theme, user, connections, toast]
+    [isAuthed, theme, user, connections, connectedAccounts, toast]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

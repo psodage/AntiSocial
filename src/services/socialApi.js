@@ -71,13 +71,18 @@ export async function startSocialConnect(platform, options = {}) {
   try {
     const params = new URLSearchParams();
     const normalized = (platform || "").toLowerCase();
-    const isMetaPlatform = ["facebook", "instagram"].includes(normalized);
-    if (isMetaPlatform) {
+    const isFacebook = normalized === "facebook";
+    const isInstagram = normalized === "instagram";
+    if (isFacebook) {
       params.set("platform", normalized);
     }
     if (options.flow) params.set("flow", options.flow);
     const query = params.toString() ? `?${params.toString()}` : "";
-    const endpoint = isMetaPlatform ? "/api/social/meta/connect" : `/api/social/${platform}/connect`;
+    const endpoint = isInstagram
+      ? "/api/social/instagram/login"
+      : isFacebook
+        ? "/api/social/meta/connect"
+        : `/api/social/${platform}/connect`;
     const { data } = await socialClient.get(`${endpoint}${query}`);
     return data.data;
   } catch (error) {

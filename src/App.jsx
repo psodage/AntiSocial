@@ -10,6 +10,7 @@ import SchedulePage from "./pages/SchedulePage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ConnectedPlatformsPage from "./pages/ConnectedPlatformsPage";
+import ConnectedPlatformDetailPage from "./pages/ConnectedPlatformDetailPage";
 import OnboardingPlatformsPage from "./pages/OnboardingPlatformsPage";
 import Toast from "./components/Toast";
 
@@ -80,6 +81,7 @@ function RootRouter() {
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="connected-platforms" element={<ConnectedPlatformsPage />} />
+          <Route path="connected-platforms/:platformKey" element={<ConnectedPlatformDetailPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<NotFoundRoute />} />

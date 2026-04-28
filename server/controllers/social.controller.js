@@ -14,7 +14,7 @@ import {
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
 
-const META_PLATFORMS = new Set(["facebook", "instagram"]);
+const META_PLATFORMS = new Set(["facebook"]);
 const META_UPGRADE_SCOPE_SETS = {
   pages_show_list: META_SCOPE_SETS.pages,
   instagram_basic: [...META_SCOPE_SETS.pages, ...META_SCOPE_SETS.instagramBasic],
@@ -123,6 +123,11 @@ export async function connectSocialPlatform(req, res) {
     });
     return errorResponse(res, error.message || "Unable to start OAuth flow.", 400, error.message);
   }
+}
+
+export async function connectInstagramPlatform(req, res) {
+  req.params.platform = "instagram";
+  return connectSocialPlatform(req, res);
 }
 
 export async function connectMetaPlatform(req, res) {
@@ -378,6 +383,10 @@ export async function metaOauthCallback(req, res) {
   return handleOAuthCallback(req, res, "meta");
 }
 
+export async function instagramOauthCallback(req, res) {
+  return handleOAuthCallback(req, res, "instagram");
+}
+
 export async function disconnectSocialPlatform(req, res) {
   try {
     const { platform } = req.params;
@@ -435,6 +444,8 @@ export async function debugSocialEnvCheck(req, res) {
         googleBusinessRedirectUri: appConfig.googleBusinessRedirectUri || "missing",
         linkedinRedirectUri: appConfig.linkedinRedirectUri || "missing",
         metaRedirectUri: appConfig.metaRedirectUri || "missing",
+        instagramRedirectUri: appConfig.instagramRedirectUri || "missing",
+        hasInstagramClientId: Boolean(appConfig.instagramClientId),
       },
     },
     "Environment diagnostics loaded."

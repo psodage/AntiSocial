@@ -5,7 +5,7 @@ import { useApp } from "../context/AppContext";
 
 export default function LoginPage() {
   const { login } = useApp();
-  const [email, setEmail] = useState("demo@antisocial.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();

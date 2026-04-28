@@ -38,6 +38,36 @@ await usersCollection.createIndex({ email: 1 }, { unique: true });
 app.use(cors());
 app.use(express.json());
 
+function verifyInstagramWebhookToken(req, res) {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+
+  if (!expectedToken) {
+    console.error("[instagram:webhook:verify:error] Missing INSTAGRAM_WEBHOOK_VERIFY_TOKEN.");
+    return res.status(500).send("Webhook verify token is not configured.");
+  }
+
+  if (mode === "subscribe" && token === expectedToken && challenge) {
+    console.info("[instagram:webhook:verify:success]");
+    return res.status(200).send(challenge);
+  }
+
+  console.warn("[instagram:webhook:verify:failed]", {
+    mode: mode || "missing",
+    hasToken: Boolean(token),
+  });
+  return res.sendStatus(403);
+}
+
+function receiveInstagramWebhook(req, res) {
+  console.info("[instagram:webhook:event]", {
+    body: req.body,
+  });
+  return res.sendStatus(200);
+}
+
 function parseUserId(userId) {
   if (!ObjectId.isValid(userId)) {
     return null;
@@ -245,6 +275,9 @@ app.put("/api/users/me/onboarding", requireAuth, async (req, res) => {
     return res.status(500).json({ error: "Unable to update onboarding state." });
   }
 });
+
+app.get("/api/webhooks/instagram", verifyInstagramWebhookToken);
+app.post("/api/webhooks/instagram", receiveInstagramWebhook);
 
 app.use("/api/social", createSocialRoutes(requireAuth));
 

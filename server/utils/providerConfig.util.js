@@ -72,6 +72,13 @@ export function getSafeProviderDebugInfo(platform) {
       redirectUri: process.env.THREADS_REDIRECT_URI || "missing",
     };
   }
+  if (platform === "instagram") {
+    return {
+      platform,
+      clientId: maskIdentifier(process.env.INSTAGRAM_CLIENT_ID),
+      redirectUri: process.env.INSTAGRAM_REDIRECT_URI || "missing",
+    };
+  }
   return {
     platform,
     clientId: maskIdentifier(process.env.META_APP_ID),

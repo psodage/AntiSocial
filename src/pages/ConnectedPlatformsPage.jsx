@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import { SOCIAL_PLATFORM_CONFIGS, PLATFORM_CAPABILITY_MATRIX } from "../data/socialPlatforms";
-import { disconnectSocial, getSocialAccounts, getSocialOAuthErrorMessage, refreshSocial, startSocialConnect } from "../services/socialApi";
+import { disconnectSocial, getSocialOAuthErrorMessage, refreshSocial, startSocialConnect } from "../services/socialApi";
 import SocialAccountCard from "../components/social/SocialAccountCard";
 import DisconnectConfirmationDialog from "../components/social/DisconnectConfirmationDialog";
 import { useApp } from "../context/AppContext";
@@ -12,7 +12,7 @@ function sectionForPlatform(key) {
 }
 
 export default function ConnectedPlatformsPage() {
-  const { setToast } = useApp();
+  const { setToast, refreshConnectedAccounts } = useApp();
   const [accounts, setAccounts] = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [processingPlatform, setProcessingPlatform] = useState("");
@@ -38,7 +38,7 @@ export default function ConnectedPlatformsPage() {
   async function loadAccounts() {
     setLoadingAccounts(true);
     try {
-      setAccounts(await getSocialAccounts());
+      setAccounts(await refreshConnectedAccounts());
     } catch (error) {
       setToast({ message: error.message || "Unable to load connected accounts.", error: true });
     } finally {

@@ -1,10 +1,12 @@
 import { Router } from "express";
 import {
+  connectInstagramPlatform,
   connectMetaUpgradePlatform,
   connectMetaPlatform,
   connectSocialPlatform,
   debugSocialEnvCheck,
   disconnectSocialPlatform,
+  instagramOauthCallback,
   listSocialAccounts,
   metaOauthCallback,
   oauthCallback,
@@ -24,6 +26,8 @@ export function createSocialRoutes(requireAuth) {
   router.get("/meta/connect", requireAuth, connectMetaPlatform);
   router.get("/meta/upgrade/connect", requireAuth, connectMetaUpgradePlatform);
   router.get("/meta/callback", metaOauthCallback);
+  router.get("/instagram/login", requireAuth, connectInstagramPlatform);
+  router.get("/instagram/callback", instagramOauthCallback);
   router.get("/:platform/connect", requireAuth, connectSocialPlatform);
   router.get("/:platform/callback", oauthCallback);
   router.post("/:platform/disconnect", requireAuth, disconnectSocialPlatform);

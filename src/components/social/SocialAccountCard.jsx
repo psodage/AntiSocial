@@ -11,6 +11,7 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
   const displayName = isConnected ? account?.accountName || account?.username || "No Account linked" : "No Account linked";
   const firstPage = Array.isArray(account?.entities) ? account.entities.find((item) => item.entityType === "page") : null;
   const linkedInstagram = account?.metadata?.linkedInstagramAccount || account?.metadata?.linkedFacebookPage || null;
+  const instagramUserId = account?.metadata?.instagramUserId || account?.platformUserId || "";
   const capability = PLATFORM_CAPABILITY_MATRIX[platformConfig.key];
   const badges = account?.capabilities?.length ? account.capabilities : capability?.badges || [];
   const oauthSupported = capability?.oauth !== false;
@@ -67,7 +68,7 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
         ) : null}
         {isConnected && platformConfig.key === "instagram" ? (
           <p className="text-xs text-slate-400">
-            {linkedInstagram?.pageName ? `Linked Page: ${linkedInstagram.pageName}` : "Linked Page: Not available"}
+            {instagramUserId ? `Instagram User ID: ${instagramUserId}` : "Instagram user ID unavailable"}
           </p>
         ) : null}
         <TokenExpiryWarning account={account} />
@@ -75,7 +76,13 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
       </div>
 
       <div className="mt-4 flex gap-2">
-        <ConnectButton isConnected={isConnected} isProcessing={isProcessing || !oauthSupported} onConnect={onConnect} onReconnect={onReconnect} />
+        <ConnectButton
+          isConnected={isConnected}
+          isProcessing={isProcessing || !oauthSupported}
+          onConnect={onConnect}
+          onReconnect={onReconnect}
+          connectLabel={platformConfig.key === "instagram" ? "Connect Instagram" : "Connect"}
+        />
         <button
           onClick={onDisconnect}
           disabled={!isConnected || isProcessing}
