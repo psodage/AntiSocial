@@ -63,6 +63,9 @@ function mapCallbackReason(callbackError) {
   if (normalized.includes("no facebook pages")) return "no_facebook_pages";
   if (normalized.includes("no linked instagram professional account")) return "no_instagram_professional_account";
   if (normalized.includes("invalid scope")) return "invalid_scope";
+  if (normalized.includes("permission")) return "invalid_scope";
+  if (normalized.includes("profile fetch failed")) return "invalid_scope";
+  if (normalized.includes("unable to identify social account")) return "profile_identification_failed";
   if (normalized.includes("unable to read facebook pages")) return "no_page_found";
   if (normalized.includes("already linked to another antisocial user")) return "account_already_linked";
   if (normalized.includes("token")) return "token_error";

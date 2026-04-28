@@ -26,6 +26,34 @@ function fallbackProfile(platform) {
   };
 }
 
+function buildOAuthError(message, code, details) {
+  const err = new Error(message);
+  if (code) err.code = code;
+  if (details !== undefined) err.details = details;
+  return err;
+}
+
+function pickProfileImage(data) {
+  if (!data || typeof data !== "object") return "";
+  if (typeof data.picture === "string") return data.picture;
+  if (typeof data.profilePicture === "string") return data.profilePicture;
+  return data.picture?.data?.url || "";
+}
+
+function pickAccountName(data) {
+  if (!data || typeof data !== "object") return "";
+  if (typeof data.name === "string" && data.name.trim()) return data.name;
+  if (typeof data.localizedFirstName === "string" && data.localizedFirstName.trim()) {
+    const first = data.localizedFirstName.trim();
+    const last = typeof data.localizedLastName === "string" ? data.localizedLastName.trim() : "";
+    return `${first} ${last}`.trim();
+  }
+  const givenName = typeof data.given_name === "string" ? data.given_name.trim() : "";
+  const familyName = typeof data.family_name === "string" ? data.family_name.trim() : "";
+  const fullName = `${givenName} ${familyName}`.trim();
+  return fullName;
+}
+
 export function createOAuthService({
   platform,
   clientId,
@@ -94,7 +122,25 @@ export function createOAuthService({
           clientId: maskClientId(clientId),
           error: summarizeAxiosError(error),
         });
-        throw new Error(`Token exchange failed for ${platform}.`);
+        const status = error?.response?.status;
+        const providerCode =
+          error?.response?.data?.error ||
+          error?.response?.data?.errorCode ||
+          error?.response?.data?.code ||
+          null;
+        const providerMessage =
+          error?.response?.data?.error_description ||
+          error?.response?.data?.message ||
+          error?.message ||
+          "";
+        const normalizedMessage = String(providerMessage).toLowerCase();
+        const code =
+          providerCode === "invalid_scope" || normalizedMessage.includes("scope")
+            ? "invalid_scope"
+            : status === 401 || status === 403
+              ? "token_exchange_forbidden"
+              : "token_exchange_failed";
+        throw buildOAuthError(`Token exchange failed for ${platform}.`, code, error?.response?.data || null);
       }
 
       return {
@@ -123,15 +169,28 @@ export function createOAuthService({
           clientId: maskClientId(clientId),
           error: summarizeAxiosError(error),
         });
-        throw new Error(`Profile fetch failed for ${platform}.`);
+        const status = error?.response?.status;
+        const providerMessage =
+          error?.response?.data?.message ||
+          error?.response?.data?.error_description ||
+          error?.message ||
+          "";
+        const normalizedMessage = String(providerMessage).toLowerCase();
+        const code =
+          normalizedMessage.includes("scope") || normalizedMessage.includes("permission")
+            ? "invalid_scope"
+            : status === 401 || status === 403
+              ? "profile_forbidden"
+              : "profile_fetch_failed";
+        throw buildOAuthError(`Profile fetch failed for ${platform}.`, code, error?.response?.data || null);
       }
 
       const normalized = {
-        platformUserId: data.id?.toString() || fallbackProfile(platform).platformUserId,
-        accountName: data.name || data.localizedFirstName || fallbackProfile(platform).accountName,
-        username: data.username || data.vanityName || "",
-        email: data.email || "",
-        profileImage: data.picture?.data?.url || data.profilePicture || "",
+        platformUserId: data.id?.toString() || data.sub?.toString() || fallbackProfile(platform).platformUserId,
+        accountName: pickAccountName(data) || fallbackProfile(platform).accountName,
+        username: data.username || data.vanityName || data.preferred_username || "",
+        email: data.email || data.emailAddress || "",
+        profileImage: pickProfileImage(data),
         metadata: {
           rawProfile: data,
           capabilities: ["posting", "analytics"],
