@@ -305,6 +305,7 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
 
     const tokenData = await provider.exchangeCodeForToken(code, {
       ...(platform === "x" && decodedState?.pkceVerifier ? { codeVerifier: decodedState.pkceVerifier } : {}),
+      ...(platform === "x" ? { useBasicClientAuth: true } : {}),
     });
     if (!tokenData?.accessToken) {
       throw new Error("No access token received from provider.");

@@ -103,17 +103,23 @@ export function createOAuthService({
 
       let data;
       try {
+        const tokenHeaders = {
+          "Content-Type": "application/x-www-form-urlencoded",
+        };
+        if (runtimeParams?.useBasicClientAuth) {
+          tokenHeaders.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+        }
         const response = await axios.post(
           tokenUrl,
           new URLSearchParams({
             client_id: clientId,
-            client_secret: clientSecret,
             redirect_uri: redirectUri,
             grant_type: "authorization_code",
             code,
             ...(runtimeParams?.codeVerifier ? { code_verifier: runtimeParams.codeVerifier } : {}),
+            ...(runtimeParams?.useBasicClientAuth ? {} : { client_secret: clientSecret }),
           }),
-          { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+          { headers: tokenHeaders }
         );
         data = response.data;
       } catch (error) {
