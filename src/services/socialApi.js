@@ -23,6 +23,9 @@ export function getSocialOAuthErrorMessage(reason, platform) {
   const normalized = (reason || "").toLowerCase();
   if (!normalized) return `Failed to connect ${platform}. Please retry.`;
   if (normalized.includes("invalid_scope")) {
+    if ((platform || "").toLowerCase() === "linkedin") {
+      return "LinkedIn rejected one or more requested permissions. Verify your LinkedIn app products/scopes (for example, Share on LinkedIn) and confirm the redirect URI matches exactly, then retry.";
+    }
     if ((platform || "").toLowerCase() === "instagram") {
       return "Instagram rejected one or more requested permissions. Verify Instagram Login products/scopes in your app settings and retry.";
     }
