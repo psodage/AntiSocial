@@ -7,6 +7,7 @@ import {
   disconnectSocial,
   getSocialAccounts,
   getSocialOAuthErrorMessage,
+  manualConnectSocial,
   refreshSocial,
   startSocialConnect,
 } from "../services/socialApi";
@@ -106,15 +107,18 @@ export default function SettingsPage() {
   };
 
   const connectPlatform = async (platform) => {
-    if (PLATFORM_CAPABILITY_MATRIX[platform]?.oauth === false) {
-      setToast({ message: `${platform} requires bot/manual setup and does not support OAuth connect.`, error: true });
-      return;
-    }
     setProcessingPlatform(platform);
-    const redirectMessage =
-      platform === "instagram" ? "Redirecting to Instagram Login..." : `Redirecting to ${platform} OAuth...`;
-    setToast({ message: redirectMessage });
     try {
+      if (PLATFORM_CAPABILITY_MATRIX[platform]?.oauth === false) {
+        await manualConnectSocial(platform);
+        await loadAccounts();
+        addAuditEntry({ message: `${platform} connected via manual bot setup` });
+        setToast({ message: `${platform} connected via manual bot setup.` });
+        return;
+      }
+      const redirectMessage =
+        platform === "instagram" ? "Redirecting to Instagram Login..." : `Redirecting to ${platform} OAuth...`;
+      setToast({ message: redirectMessage });
       const data = await startSocialConnect(platform);
       window.location.href = data.url;
     } catch (error) {

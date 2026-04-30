@@ -78,7 +78,7 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
       <div className="mt-4 flex gap-2">
         <ConnectButton
           isConnected={isConnected}
-          isProcessing={isProcessing || !oauthSupported}
+          isProcessing={isProcessing}
           onConnect={onConnect}
           onReconnect={onReconnect}
           connectLabel={platformConfig.key === "instagram" ? "Connect Instagram" : "Connect"}

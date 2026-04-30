@@ -99,6 +99,15 @@ export async function startSocialConnect(platform, options = {}) {
   }
 }
 
+export async function manualConnectSocial(platform) {
+  try {
+    const { data } = await socialClient.post(`/api/social/${platform}/manual-connect`);
+    return data.data.account;
+  } catch (error) {
+    throw parseApiError(error, `Unable to manually connect ${platform}.`);
+  }
+}
+
 export async function disconnectSocial(platform) {
   try {
     const { data } = await socialClient.post(`/api/social/${platform}/disconnect`);

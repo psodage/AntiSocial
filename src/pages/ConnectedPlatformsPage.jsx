@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import { SOCIAL_PLATFORM_CONFIGS, PLATFORM_CAPABILITY_MATRIX } from "../data/socialPlatforms";
-import { disconnectSocial, getSocialOAuthErrorMessage, refreshSocial, startSocialConnect } from "../services/socialApi";
+import { disconnectSocial, getSocialOAuthErrorMessage, manualConnectSocial, refreshSocial, startSocialConnect } from "../services/socialApi";
 import SocialAccountCard from "../components/social/SocialAccountCard";
 import DisconnectConfirmationDialog from "../components/social/DisconnectConfirmationDialog";
 import { useApp } from "../context/AppContext";
@@ -52,12 +52,14 @@ export default function ConnectedPlatformsPage() {
 
   const connectPlatform = async (platform) => {
     const capability = PLATFORM_CAPABILITY_MATRIX[platform];
-    if (capability?.oauth === false) {
-      setToast({ message: `${platform} uses bot/manual setup. OAuth connect is unavailable.`, error: true });
-      return;
-    }
     setProcessingPlatform(platform);
     try {
+      if (capability?.oauth === false) {
+        await manualConnectSocial(platform);
+        await loadAccounts();
+        setToast({ message: `${platform} connected via manual bot setup.` });
+        return;
+      }
       const data = await startSocialConnect(platform);
       window.location.href = data.url;
     } catch (error) {

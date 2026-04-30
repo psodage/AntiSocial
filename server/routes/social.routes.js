@@ -8,6 +8,7 @@ import {
   disconnectSocialPlatform,
   instagramOauthCallback,
   listSocialAccounts,
+  manualConnectSocialPlatform,
   metaOauthCallback,
   oauthCallback,
   refreshSocialPlatform,
@@ -29,6 +30,7 @@ export function createSocialRoutes(requireAuth) {
   router.get("/instagram/login", requireAuth, connectInstagramPlatform);
   router.get("/instagram/callback", instagramOauthCallback);
   router.get("/:platform/connect", requireAuth, connectSocialPlatform);
+  router.post("/:platform/manual-connect", requireAuth, manualConnectSocialPlatform);
   router.get("/:platform/callback", oauthCallback);
   router.post("/:platform/disconnect", requireAuth, disconnectSocialPlatform);
   router.post("/:platform/refresh", requireAuth, refreshSocialPlatform);

@@ -5,6 +5,7 @@ import { errorResponse, successResponse } from "../utils/apiResponse.js";
 import { getProvider } from "../services/social/providerRegistry.js";
 import { META_SCOPE_SETS } from "../services/social/meta.service.js";
 import { getSafeProviderDebugInfo, validateProviderConfig } from "../utils/providerConfig.util.js";
+import { getPlatformCapabilities } from "../config/platformCapabilities.js";
 import {
   disconnectAccount,
   getAccountsForUser,
@@ -119,6 +120,50 @@ export async function connectSocialPlatform(req, res) {
       message: error?.message,
     });
     return errorResponse(res, error.message || "Unable to start OAuth flow.", 400, error.message);
+  }
+}
+
+export async function manualConnectSocialPlatform(req, res) {
+  try {
+    const requestedPlatform = req.params.platform;
+    const { platform, provider } = resolvePlatform(requestedPlatform);
+    const capabilities = getPlatformCapabilities(platform);
+    if (capabilities?.oauth !== false) {
+      return errorResponse(res, `${platform} uses OAuth connect flow.`, 400, "oauth_required");
+    }
+
+    const providerConfig = validateProviderConfig(platform);
+    if (!providerConfig.valid) {
+      return errorResponse(res, `${platform} manual setup is missing required environment variables.`, 400, providerConfig.missing);
+    }
+
+    const profile = await provider.getProfile();
+    if (!profile?.platformUserId) {
+      return errorResponse(res, `Unable to identify ${platform} profile from environment settings.`, 400, "profile_identification_failed");
+    }
+
+    const tokenData = {
+      accessToken: process.env.TELEGRAM_BOT_TOKEN || "",
+      refreshToken: "",
+      tokenType: "Bot",
+      expiresIn: null,
+      scopes: [],
+    };
+
+    const account = await upsertConnectedAccount({
+      userId: new ObjectId(req.auth.userId),
+      platform,
+      profile: {
+        ...profile,
+        entityType: profile.entityType || "bot",
+        entityId: profile.entityId || profile.platformUserId,
+      },
+      tokenData,
+    });
+
+    return successResponse(res, { account }, `${platform} connected via manual bot setup.`);
+  } catch (error) {
+    return errorResponse(res, error.message || "Unable to manually connect platform.", 400, error.message);
   }
 }
 
