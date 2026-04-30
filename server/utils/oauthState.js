@@ -10,9 +10,9 @@ function getStateSecret() {
   return process.env.JWT_SECRET;
 }
 
-export function createOAuthState({ userId, platform, flow = "settings" }) {
+export function createOAuthState({ userId, platform, flow = "settings", ...extra }) {
   return jwt.sign(
-    { userId, platform, flow, type: STATE_TYPE },
+    { userId, platform, flow, type: STATE_TYPE, ...extra },
     getStateSecret(),
     {
       expiresIn: STATE_EXPIRY,

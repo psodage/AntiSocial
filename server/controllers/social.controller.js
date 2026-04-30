@@ -1,4 +1,5 @@
 import { ObjectId } from "mongodb";
+import crypto from "crypto";
 import { getAppConfig, getProviderEnvStatus, getRequiredEnvStatus } from "../config/social.config.js";
 import { createOAuthState, validateOAuthState } from "../utils/oauthState.js";
 import { errorResponse, successResponse } from "../utils/apiResponse.js";
@@ -28,6 +29,16 @@ const META_UPGRADE_SCOPE_SETS = {
     ...META_SCOPE_SETS.insights,
   ],
 };
+
+function toBase64Url(buffer) {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function createPkcePair() {
+  const verifier = toBase64Url(crypto.randomBytes(48));
+  const challenge = toBase64Url(crypto.createHash("sha256").update(verifier).digest());
+  return { verifier, challenge };
+}
 
 function getClientUrl() {
   return getAppConfig().clientBaseUrl;
@@ -103,8 +114,22 @@ export async function connectSocialPlatform(req, res) {
     if (!providerConfig.valid) {
       return errorResponse(res, `${platform} OAuth config is missing required environment variables.`, 400, providerConfig.missing);
     }
-    const state = createOAuthState({ userId: req.auth.userId, platform, flow });
-    const authUrl = provider.getAuthUrl(state);
+    const pkce = platform === "x" ? createPkcePair() : null;
+    const state = createOAuthState({
+      userId: req.auth.userId,
+      platform,
+      flow,
+      ...(pkce ? { pkceVerifier: pkce.verifier } : {}),
+    });
+    const authUrl = provider.getAuthUrl(
+      state,
+      pkce
+        ? {
+            code_challenge: pkce.challenge,
+            code_challenge_method: "S256",
+          }
+        : {}
+    );
     console.info("[oauth:connect:start]", {
       platform,
       flow,
@@ -278,7 +303,9 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
       throw new Error("Missing authorization code.");
     }
 
-    const tokenData = await provider.exchangeCodeForToken(code);
+    const tokenData = await provider.exchangeCodeForToken(code, {
+      ...(platform === "x" && decodedState?.pkceVerifier ? { codeVerifier: decodedState.pkceVerifier } : {}),
+    });
     if (!tokenData?.accessToken) {
       throw new Error("No access token received from provider.");
     }

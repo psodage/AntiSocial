@@ -81,7 +81,7 @@ export function createOAuthService({
   return {
     platform,
     validateConfig,
-    getAuthUrl(state) {
+    getAuthUrl(state, runtimeParams = {}) {
       if (!validateConfig().valid) {
         throw new Error(`${platform} OAuth is not configured.`);
       }
@@ -92,10 +92,11 @@ export function createOAuthService({
         scope: scopes.join(scopeSeparator),
         state,
         ...additionalAuthParams,
+        ...runtimeParams,
       });
       return `${authUrl}?${params.toString()}`;
     },
-    async exchangeCodeForToken(code) {
+    async exchangeCodeForToken(code, runtimeParams = {}) {
       if (!validateConfig().valid) {
         throw new Error(`${platform} OAuth is not configured.`);
       }
@@ -110,6 +111,7 @@ export function createOAuthService({
             redirect_uri: redirectUri,
             grant_type: "authorization_code",
             code,
+            ...(runtimeParams?.codeVerifier ? { code_verifier: runtimeParams.codeVerifier } : {}),
           }),
           { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
         );
