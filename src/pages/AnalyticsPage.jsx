@@ -303,10 +303,12 @@ function AnimatedNumber({ value, prefix = "", suffix = "" }) {
 }
 
 function PlatformTabs({ selected, onSelect }) {
+  const visibleTabs = platformTabs.filter((platform) => platform.key === "all" || mockAnalytics[platform.key]?.connected);
+
   return (
     <div className="overflow-x-auto">
       <div className="inline-flex min-w-full gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-2">
-        {platformTabs.map((platform) => (
+        {visibleTabs.map((platform) => (
           <button
             key={platform.key}
             onClick={() => onSelect(platform.key)}
@@ -420,7 +422,12 @@ function TopContentTable({ title, columns, rows }) {
 }
 
 function ComparePlatformsChart() {
-  const radarData = platformOverview.map((entry) => ({
+  const connectedOverview = platformOverview.filter((entry) => {
+    const key = entry.platform.toLowerCase() === "x" ? "twitter" : entry.platform.toLowerCase();
+    return mockAnalytics[key]?.connected;
+  });
+
+  const radarData = connectedOverview.map((entry) => ({
     platform: entry.platform,
     followers: Math.round(entry.followers / 5000),
     reach: Math.round(entry.reach / 10000),
@@ -434,7 +441,7 @@ function ComparePlatformsChart() {
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={platformOverview}>
+            <BarChart data={connectedOverview}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
               <XAxis dataKey="platform" stroke="#94a3b8" fontSize={12} />
               <YAxis stroke="#94a3b8" fontSize={12} />
@@ -635,18 +642,35 @@ export default function AnalyticsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState("all");
   const [loading, setLoading] = useState(true);
 
+  const connectedPlatformOverview = useMemo(
+    () =>
+      platformOverview.filter((entry) => {
+        const key = entry.platform.toLowerCase() === "x" ? "twitter" : entry.platform.toLowerCase();
+        return mockAnalytics[key]?.connected;
+      }),
+    []
+  );
+
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 850);
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    if (selectedPlatform === "all") return;
+    if (!mockAnalytics[selectedPlatform]?.connected) {
+      setSelectedPlatform("all");
+    }
+  }, [selectedPlatform]);
+
   const overviewKpis = useMemo(() => {
-    const followers = platformOverview.reduce((sum, item) => sum + item.followers, 0);
-    const reach = platformOverview.reduce((sum, item) => sum + item.reach, 0);
-    const engagement = platformOverview.reduce((sum, item) => sum + item.engagement, 0) / platformOverview.length;
+    const followers = connectedPlatformOverview.reduce((sum, item) => sum + item.followers, 0);
+    const reach = connectedPlatformOverview.reduce((sum, item) => sum + item.reach, 0);
+    const engagement =
+      connectedPlatformOverview.reduce((sum, item) => sum + item.engagement, 0) / connectedPlatformOverview.length;
     const clicks = 482300;
     const ctr = 4.9;
-    const revenue = platformOverview.reduce((sum, item) => sum + item.revenue, 0);
+    const revenue = connectedPlatformOverview.reduce((sum, item) => sum + item.revenue, 0);
 
     return [
       { label: "Total Followers", value: followers, growth: "+4.6%", icon: Users },
@@ -656,7 +680,7 @@ export default function AnalyticsPage() {
       { label: "Total Clicks", value: clicks, growth: "+5.8%", icon: Link2 },
       { label: "Total Revenue", value: revenue, growth: "+7.1%", icon: CircleDollarSign, prefix: "$" },
     ];
-  }, []);
+  }, [connectedPlatformOverview]);
 
   return (
     <section className="space-y-5">
