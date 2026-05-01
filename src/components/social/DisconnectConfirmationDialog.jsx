@@ -6,7 +6,7 @@ export default function DisconnectConfirmationDialog({ open, platformLabel, load
       <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
         <h3 className="text-lg font-semibold text-white">Disconnect {platformLabel}?</h3>
         <p className="mt-2 text-sm text-slate-300">
-          This will remove access tokens from AntiSocial and pause posting + analytics for this channel.
+          This will remove access tokens from ProBlogBooster and pause posting + analytics for this channel.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button

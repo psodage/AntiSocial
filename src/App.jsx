@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import DashboardLayout from "./layouts/DashboardLayout";
 import LoginPage from "./pages/LoginPage";
@@ -51,8 +51,9 @@ function NotFoundRoute() {
 function RootRouter() {
   const { theme } = useApp();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
   }, [theme]);
 
   return (

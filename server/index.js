@@ -10,7 +10,7 @@ import { getProviderEnvStatus, getRequiredEnvStatus } from "./config/social.conf
 const app = express();
 const port = process.env.PORT || 4000;
 const mongoUri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB_NAME || "antisocial";
+const dbName = process.env.MONGODB_DB_NAME || "problogbooster";
 const jwtSecret = process.env.JWT_SECRET;
 const jwtExpiry = "7d";
 

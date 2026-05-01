@@ -5,7 +5,7 @@ import { SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
 import { getSocialOAuthErrorMessage, startSocialConnect } from "../services/socialApi";
 import { useApp } from "../context/AppContext";
 
-const ONBOARDING_STORAGE_KEY = "antisocial-onboarding-flow";
+const ONBOARDING_STORAGE_KEY = "problogbooster-onboarding-flow";
 
 function getInitialSelected() {
   return SOCIAL_PLATFORM_CONFIGS.reduce((acc, platform) => {

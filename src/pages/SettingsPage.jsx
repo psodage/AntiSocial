@@ -198,7 +198,7 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-400">Secure OAuth linking for publishing and analytics across all channels.</p>
           </div>
           <div className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200">
-            AntiSocial OAuth Hub
+            ProBlogBooster OAuth Hub
           </div>
         </div>
 

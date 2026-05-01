@@ -84,7 +84,7 @@ export async function upsertConnectedAccount({ userId, platform, profile, tokenD
     userId: { $ne: userId },
   });
   if (alreadyLinked) {
-    throw new Error("This social account is already linked to another AntiSocial user.");
+    throw new Error("This social account is already linked to another ProBlogBooster user.");
   }
 
   const now = new Date();

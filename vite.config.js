@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     allowedHosts: [
-      "antisocial-1pig.onrender.com",
+      "problogbooster.onrender.com",
       "dandelion-tall-numerator.ngrok-free.dev",
     ],
   },

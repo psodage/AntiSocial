@@ -7,7 +7,7 @@ const AppContext = createContext(null);
 
 function getInitialTheme() {
   const saved = localStorage.getItem(STORAGE_KEYS.theme);
-  if (saved) return saved;
+  if (saved === "dark" || saved === "light") return saved;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -66,9 +66,11 @@ export function AppProvider({ children }) {
   };
 
   const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    localStorage.setItem(STORAGE_KEYS.theme, next);
+    setTheme((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      localStorage.setItem(STORAGE_KEYS.theme, next);
+      return next;
+    });
   };
 
   const login = async ({ email, password }) => {

@@ -1,11 +1,11 @@
 export const STORAGE_KEYS = {
-  theme: "velora-theme",
-  auth: "velora-auth",
-  authToken: "velora-auth-token",
-  email: "velora-email",
-  profileName: "velora-profile-name",
-  onboardingCompleted: "velora-onboarding-completed",
-  socialConnections: "antisocial-social-connections",
+  theme: "problogbooster-theme",
+  auth: "problogbooster-auth",
+  authToken: "problogbooster-auth-token",
+  email: "problogbooster-email",
+  profileName: "problogbooster-profile-name",
+  onboardingCompleted: "problogbooster-onboarding-completed",
+  socialConnections: "problogbooster-social-connections",
 };
 
 export const ROUTES = [

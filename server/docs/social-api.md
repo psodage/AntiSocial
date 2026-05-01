@@ -57,8 +57,8 @@ Failure shape:
       {
         "platform": "instagram",
         "isConnected": true,
-        "accountName": "AntiSocial IG",
-        "username": "antisocialhq",
+        "accountName": "ProBlogBooster IG",
+        "username": "problogboosterhq",
         "profileImage": "https://example.com/avatar.png",
         "isTokenExpired": false,
         "lastSyncedAt": "2026-04-18T12:01:00.000Z"
@@ -76,10 +76,10 @@ You can hardcode this in UI tests:
 
 ```js
 export const mockSocialAccounts = [
-  { platform: "instagram", isConnected: true, accountName: "AntiSocial IG", isTokenExpired: false, lastSyncedAt: new Date().toISOString() },
+  { platform: "instagram", isConnected: true, accountName: "ProBlogBooster IG", isTokenExpired: false, lastSyncedAt: new Date().toISOString() },
   { platform: "facebook", isConnected: false },
   { platform: "threads", isConnected: false },
-  { platform: "linkedin", isConnected: true, accountName: "AntiSocial Team", isTokenExpired: true, lastSyncedAt: new Date().toISOString() },
+  { platform: "linkedin", isConnected: true, accountName: "ProBlogBooster Team", isTokenExpired: true, lastSyncedAt: new Date().toISOString() },
   { platform: "youtube", isConnected: false },
 ];
 ```

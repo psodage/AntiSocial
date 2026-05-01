@@ -1,4 +1,4 @@
-# AntiSocial Platform Limitations (Official APIs)
+# ProBlogBooster Platform Limitations (Official APIs)
 
 - **Facebook**: Supports profile + Pages via official Meta APIs and granted scopes.
 - **Instagram**: Supports professional accounts linked through Meta graph permissions.

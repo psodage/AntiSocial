@@ -79,7 +79,7 @@ function mapCallbackReason(callbackError) {
   if (normalized.includes("profile fetch failed")) return "invalid_scope";
   if (normalized.includes("unable to identify social account")) return "profile_identification_failed";
   if (normalized.includes("unable to read facebook pages")) return "no_page_found";
-  if (normalized.includes("already linked to another antisocial user")) return "account_already_linked";
+  if (normalized.includes("already linked to another problogbooster user")) return "account_already_linked";
   if (normalized.includes("token")) return "token_error";
   return "oauth_callback_failed";
 }

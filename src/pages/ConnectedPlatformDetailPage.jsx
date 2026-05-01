@@ -23,7 +23,6 @@ export default function ConnectedPlatformDetailPage() {
   const capabilities = account?.capabilities?.length ? account.capabilities : PLATFORM_CAPABILITY_MATRIX[platformKey]?.badges || [];
   const facebookPages =
     platformKey === "facebook" ? (Array.isArray(account?.entities) ? account.entities : []).filter((entity) => entity.entityType === "page") : [];
-  const metadataEntries = account?.metadata ? Object.entries(account.metadata) : [];
 
   if (!platformConfig) {
     return (
@@ -104,21 +103,6 @@ export default function ConnectedPlatformDetailPage() {
         </div>
       </article>
 
-      <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
-        <h2 className="text-sm font-semibold text-white">Metadata</h2>
-        {metadataEntries.length ? (
-          <div className="mt-3 space-y-2">
-            {metadataEntries.map(([key, value]) => (
-              <div key={key} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300">
-                <p className="font-semibold text-slate-200">{key}</p>
-                <p className="mt-1 break-all text-slate-400">{typeof value === "string" ? value : JSON.stringify(value)}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-slate-400">No metadata available.</p>
-        )}
-      </article>
     </section>
   );
 }

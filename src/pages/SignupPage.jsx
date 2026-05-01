@@ -41,7 +41,7 @@ export default function SignupPage() {
         <div className="mb-6 flex items-center gap-3">
           <span className="h-9 w-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-400" />
           <div>
-            <h1 className="text-2xl font-bold">AntiSocial</h1>
+            <h1 className="text-2xl font-bold">ProBlogBooster</h1>
             <p className="text-sm text-slate-500">Create your account</p>
           </div>
         </div>
