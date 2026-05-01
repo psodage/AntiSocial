@@ -373,7 +373,10 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
         tokenData,
       });
 
-      const managedEntities = await provider.getManagedEntities(tokenData.accessToken, profile);
+      const managedEntities =
+        typeof provider.getManagedEntities === "function"
+          ? await provider.getManagedEntities(tokenData.accessToken, profile)
+          : [];
       if (Array.isArray(managedEntities) && managedEntities.length) {
         for (const entity of managedEntities) {
           if (!entity?.entityId) continue;
