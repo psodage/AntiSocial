@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMemo } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -12,6 +12,7 @@ function formatPlatformLabel(platformKey) {
 export default function ConnectedPlatformDetailPage() {
   const { platformKey } = useParams();
   const { connectedAccounts } = useApp();
+  const navigate = useNavigate();
 
   const account = useMemo(
     () => connectedAccounts.find((item) => item.platform === platformKey),
@@ -23,6 +24,10 @@ export default function ConnectedPlatformDetailPage() {
   const capabilities = account?.capabilities?.length ? account.capabilities : PLATFORM_CAPABILITY_MATRIX[platformKey]?.badges || [];
   const facebookPages =
     platformKey === "facebook" ? (Array.isArray(account?.entities) ? account.entities : []).filter((entity) => entity.entityType === "page") : [];
+  const linkedInOrganizations =
+    platformKey === "linkedin"
+      ? (Array.isArray(account?.entities) ? account.entities : []).filter((entity) => entity.entityType === "organization")
+      : [];
 
   if (!platformConfig) {
     return (
@@ -85,8 +90,59 @@ export default function ConnectedPlatformDetailPage() {
               <span className="text-slate-400">Facebook Pages Available:</span> {facebookPages.length}
             </p>
           ) : null}
+          {platformKey === "linkedin" ? (
+            <p>
+              <span className="text-slate-400">Company Pages Available:</span> {linkedInOrganizations.length}
+            </p>
+          ) : null}
         </div>
       </article>
+
+      {platformKey === "linkedin" ? (
+        <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Company Pages</h2>
+              <p className="mt-1 text-xs text-slate-400">Select a page to publish as that organization.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/create-post?platform=linkedin")}
+              className="rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
+            >
+              Create post
+            </button>
+          </div>
+
+          {!linkedInOrganizations.length ? (
+            <p className="mt-3 text-sm text-slate-400">
+              No LinkedIn company pages were found for this login. Ensure your LinkedIn app has the organization scopes and that your member is an admin
+              of the page, then reconnect.
+            </p>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {linkedInOrganizations.map((org) => (
+                <button
+                  key={org.entityId}
+                  type="button"
+                  onClick={() => navigate(`/create-post?platform=linkedin&entityId=${encodeURIComponent(org.entityId)}`)}
+                  className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-left transition hover:border-blue-400/40"
+                >
+                  <img
+                    src={org.profileImage || "https://placehold.co/80x80/0f172a/e2e8f0?text=LI"}
+                    alt={org.name || "LinkedIn organization"}
+                    className="h-10 w-10 rounded-lg border border-slate-700 object-cover"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-100">{org.name || "Company page"}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">Click to create a post</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </article>
+      ) : null}
 
       <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
         <h2 className="text-sm font-semibold text-white">Capabilities</h2>
