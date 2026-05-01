@@ -10,6 +10,11 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
   const isConnected = !!account?.isConnected;
   const displayName = isConnected ? account?.accountName || account?.username || "No Account linked" : "No Account linked";
   const firstPage = Array.isArray(account?.entities) ? account.entities.find((item) => item.entityType === "page") : null;
+  const linkedInOrganizations =
+    platformConfig.key === "linkedin" && Array.isArray(account?.entities)
+      ? account.entities.filter((item) => item.entityType === "organization")
+      : [];
+  const linkedInCurrentCompany = linkedInOrganizations[0] || null;
   const linkedInstagram = account?.metadata?.linkedInstagramAccount || account?.metadata?.linkedFacebookPage || null;
   const instagramUserId = account?.metadata?.instagramUserId || account?.platformUserId || "";
   const capability = PLATFORM_CAPABILITY_MATRIX[platformConfig.key];
@@ -69,6 +74,15 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
         {isConnected && platformConfig.key === "instagram" ? (
           <p className="text-xs text-slate-400">
             {instagramUserId ? `Instagram User ID: ${instagramUserId}` : "Instagram user ID unavailable"}
+          </p>
+        ) : null}
+        {isConnected && platformConfig.key === "linkedin" ? (
+          <p className="text-xs text-slate-400">
+            {linkedInCurrentCompany?.accountName || linkedInCurrentCompany?.name
+              ? `Current company: ${linkedInCurrentCompany.accountName || linkedInCurrentCompany.name}`
+              : "Current company: Not found"}
+            {" - "}
+            {`Available companies: ${linkedInOrganizations.length}`}
           </p>
         ) : null}
         <TokenExpiryWarning account={account} />

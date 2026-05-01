@@ -25,7 +25,7 @@ export default function Sidebar({ open, onClose, onLogout }) {
       >
         <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-4 dark:border-slate-800">
           <span className="h-9 w-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-400" />
-          <span className="flex-1 text-lg font-bold">ProBlogBooster</span>
+          <span className="flex-1 text-lg font-bold">AntiSocial</span>
           <button onClick={onClose} className="rounded-md p-2 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800">
             x
           </button>
