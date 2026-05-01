@@ -409,7 +409,7 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
       userId: decodedState.userId,
       status: "connected",
     });
-    return res.redirect(makeRedirectUrl(flow, "connected"));
+    return res.redirect(makeRedirectUrl(flow, "connected", "", platform));
   } catch (callbackError) {
     console.error("[oauth:callback:error]", {
       platform: platformForRedirect,

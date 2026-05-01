@@ -69,6 +69,10 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    if (window.location.hash === "#_=_") {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    }
+
     const params = new URLSearchParams(window.location.search);
     const platform = params.get("social_platform");
     const status = params.get("social_status");
