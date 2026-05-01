@@ -21,8 +21,8 @@ export default function ConnectedPlatformDetailPage() {
   const platformConfig = SOCIAL_PLATFORM_CONFIGS.find((platform) => platform.key === platformKey);
   const label = formatPlatformLabel(platformKey);
   const capabilities = account?.capabilities?.length ? account.capabilities : PLATFORM_CAPABILITY_MATRIX[platformKey]?.badges || [];
-  const entities = Array.isArray(account?.entities) ? account.entities : [];
-  const facebookPages = platformKey === "facebook" ? entities.filter((entity) => entity.entityType === "page") : [];
+  const facebookPages =
+    platformKey === "facebook" ? (Array.isArray(account?.entities) ? account.entities : []).filter((entity) => entity.entityType === "page") : [];
   const metadataEntries = account?.metadata ? Object.entries(account.metadata) : [];
 
   if (!platformConfig) {
@@ -102,24 +102,6 @@ export default function ConnectedPlatformDetailPage() {
             <p className="text-sm text-slate-400">No capabilities reported.</p>
           )}
         </div>
-      </article>
-
-      <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
-        <h2 className="text-sm font-semibold text-white">Linked Entities</h2>
-        {entities.length ? (
-          <div className="mt-3 space-y-2">
-            {entities.map((entity, index) => (
-              <div key={`${entity.entityId || "entity"}-${index}`} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300">
-                <p>{entity.name || entity.entityId || "Unnamed entity"}</p>
-                <p className="mt-1 text-slate-400">
-                  Type: {entity.entityType || "N/A"} | ID: {entity.entityId || "N/A"}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-slate-400">No linked entities for this account.</p>
-        )}
       </article>
 
       <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
