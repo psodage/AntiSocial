@@ -4,6 +4,7 @@ import {
   connectMetaUpgradePlatform,
   connectMetaPlatform,
   connectSocialPlatform,
+  createXPost,
   debugSocialEnvCheck,
   disconnectSocialPlatform,
   instagramOauthCallback,
@@ -20,6 +21,7 @@ export function createSocialRoutes(requireAuth) {
   const router = Router();
 
   router.get("/debug/env-check", requireAuth, debugSocialEnvCheck);
+  router.post("/x/post", requireAuth, createXPost);
   router.get("/accounts", requireAuth, listSocialAccounts);
   router.get("/threads/connect", requireAuth, connectThreads);
   router.get("/threads/callback", threadsOauthCallback);

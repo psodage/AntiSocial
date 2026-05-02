@@ -1,9 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, Building2, CheckCircle2, Sparkles, User, Video } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { PLATFORM_CAPABILITY_MATRIX, SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
 import { buildPostingTargetsConfig } from "../utils/connectedPlatformPostingTargets";
+import XCreatePostModal from "../components/social/XCreatePostModal";
 
 function formatPlatformLabel(platformKey) {
   const config = SOCIAL_PLATFORM_CONFIGS.find((platform) => platform.key === platformKey);
@@ -47,6 +48,8 @@ export default function ConnectedPlatformDetailPage() {
   const { platformKey } = useParams();
   const { connectedAccounts } = useApp();
   const navigate = useNavigate();
+  const [xPostModalOpen, setXPostModalOpen] = useState(false);
+  const openXComposer = () => setXPostModalOpen(true);
 
   const account = useMemo(
     () => connectedAccounts.find((item) => item.platform === platformKey),
@@ -153,7 +156,7 @@ export default function ConnectedPlatformDetailPage() {
             {postingTargets.primaryCtaPath ? (
               <button
                 type="button"
-                onClick={() => navigate(postingTargets.primaryCtaPath)}
+                onClick={() => (platformKey === "x" ? openXComposer() : navigate(postingTargets.primaryCtaPath))}
                 className="shrink-0 rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
               >
                 {postingTargets.primaryCtaLabel || "Create post"}
@@ -166,7 +169,7 @@ export default function ConnectedPlatformDetailPage() {
               <button
                 key={card.key}
                 type="button"
-                onClick={() => navigate(card.path)}
+                onClick={() => (platformKey === "x" ? openXComposer() : navigate(card.path))}
                 className="group flex flex-col overflow-hidden rounded-2xl border border-slate-600/80 bg-slate-950/50 text-left shadow-lg shadow-slate-950/40 ring-1 ring-slate-700/50 transition hover:border-blue-500/50 hover:ring-blue-500/30"
               >
                 <div className="flex items-start gap-4 p-4">
@@ -197,6 +200,8 @@ export default function ConnectedPlatformDetailPage() {
           ) : null}
         </article>
       ) : null}
+
+      {platformKey === "x" ? <XCreatePostModal open={xPostModalOpen} onClose={() => setXPostModalOpen(false)} /> : null}
 
       <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
         <h2 className="text-sm font-semibold text-white">Capabilities</h2>

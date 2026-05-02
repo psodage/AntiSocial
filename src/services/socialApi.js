@@ -140,3 +140,12 @@ export async function getSocialEnvDebug() {
     throw parseApiError(error, "Unable to fetch OAuth environment diagnostics.");
   }
 }
+
+export async function postToX(content) {
+  try {
+    const { data } = await socialClient.post("/api/social/x/post", { content });
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on X.");
+  }
+}

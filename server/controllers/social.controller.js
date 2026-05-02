@@ -221,7 +221,7 @@ export async function connectMetaPlatform(req, res) {
       hasMetaAppId: Boolean(process.env.META_APP_ID),
       redirectUri: getAppConfig().metaRedirectUri || "missing",
       authMode: "classic_scope",
-      scopes: "public_profile,email",
+      scopes: requestedMetaPlatform === "facebook" ? "public_profile,email,pages_show_list" : "public_profile,email",
     });
     return successResponse(res, { url: authUrl, state }, "Meta OAuth URL generated.");
   } catch (error) {
@@ -504,6 +504,162 @@ export async function socialPlatformStatus(req, res) {
     return successResponse(res, { account }, "Fetched platform status.");
   } catch (error) {
     return errorResponse(res, error.message || "Unable to fetch status.", 400, error.message);
+  }
+}
+
+const X_POST_MAX_LENGTH = 280;
+
+function parseXContent(body) {
+  if (body === null || body === undefined || typeof body !== "object" || Array.isArray(body)) {
+    const err = new Error("Invalid request body.");
+    err.status = 400;
+    err.code = "invalid_body";
+    throw err;
+  }
+  const { content } = body;
+  if (content === undefined || content === null) {
+    const err = new Error("Post content is required.");
+    err.status = 400;
+    throw err;
+  }
+  if (typeof content !== "string") {
+    const err = new Error("Post content must be a string.");
+    err.status = 400;
+    throw err;
+  }
+  const trimmed = content.trim();
+  if (!trimmed.length) {
+    const err = new Error("Post content cannot be empty.");
+    err.status = 400;
+    throw err;
+  }
+  if (trimmed.length > X_POST_MAX_LENGTH) {
+    const err = new Error(`Post content cannot exceed ${X_POST_MAX_LENGTH} characters.`);
+    err.status = 400;
+    throw err;
+  }
+  return trimmed;
+}
+
+export async function createXPost(req, res) {
+  let content;
+  try {
+    content = parseXContent(req.body);
+  } catch (validationError) {
+    return errorResponse(res, validationError.message, validationError.status || 400, validationError.code || "validation_error");
+  }
+
+  const userId = new ObjectId(req.auth.userId);
+
+  try {
+    const account = await getStoredAccountForProvider(userId, "x");
+    if (!account || !account.isConnected) {
+      return errorResponse(
+        res,
+        "X account is not connected or token expired. Please reconnect your X account.",
+        401,
+        "not_connected"
+      );
+    }
+
+    const { provider } = resolvePlatform("x");
+    if (typeof provider.createTweet !== "function") {
+      return errorResponse(res, "X publishing is not available.", 500, "provider_error");
+    }
+
+    let accessToken = account.getDecryptedAccessToken();
+    if (!accessToken) {
+      return errorResponse(
+        res,
+        "X account is not connected or token expired. Please reconnect your X account.",
+        401,
+        "no_token"
+      );
+    }
+
+    const tokenExpired = account.expiresAt && new Date(account.expiresAt).getTime() <= Date.now();
+    if (tokenExpired) {
+      try {
+        const refreshed = await provider.refreshTokenIfNeeded(account);
+        if (refreshed) {
+          await refreshAccountToken(userId, "x", refreshed);
+          accessToken = refreshed.accessToken;
+        }
+      } catch (refreshError) {
+        console.error("[x:post:refresh:error]", { message: refreshError?.message, code: refreshError?.code });
+        return errorResponse(
+          res,
+          refreshError.message || "X account is not connected or token expired. Please reconnect your X account.",
+          refreshError.status || 401,
+          refreshError.code || "token_refresh_failed"
+        );
+      }
+    }
+
+    if (!accessToken) {
+      return errorResponse(
+        res,
+        "X account is not connected or token expired. Please reconnect your X account.",
+        401,
+        "no_token"
+      );
+    }
+
+    let tweetData;
+    let retriedUnauthorized = false;
+    for (;;) {
+      try {
+        tweetData = await provider.createTweet(accessToken, content);
+        break;
+      } catch (apiError) {
+        const canRetry =
+          apiError.code === "x_unauthorized" &&
+          !retriedUnauthorized &&
+          typeof account.getDecryptedRefreshToken === "function" &&
+          account.getDecryptedRefreshToken();
+        if (canRetry) {
+          retriedUnauthorized = true;
+          try {
+            const refreshed = await provider.refreshTokenIfNeeded({
+              expiresAt: new Date(0),
+              getDecryptedRefreshToken: () => account.getDecryptedRefreshToken(),
+            });
+            if (refreshed) {
+              await refreshAccountToken(userId, "x", refreshed);
+              accessToken = refreshed.accessToken;
+              continue;
+            }
+          } catch (retryRefreshError) {
+            console.error("[x:post:retry-refresh:error]", { message: retryRefreshError?.message });
+          }
+        }
+        console.error("[x:post:api:error]", {
+          message: apiError?.message,
+          code: apiError?.code,
+          status: apiError?.status,
+        });
+        const clientMessage =
+          apiError.status === 401 || apiError.status === 403
+            ? "X account is not connected or token expired. Please reconnect your X account."
+            : apiError.message || "Could not publish post on X.";
+        return errorResponse(res, clientMessage, apiError.status >= 400 && apiError.status < 600 ? apiError.status : 502, apiError.code || "x_post_failed");
+      }
+    }
+
+    const postId = tweetData?.data?.id ? String(tweetData.data.id) : "";
+    const safePayload = {
+      id: tweetData?.data?.id ? String(tweetData.data.id) : undefined,
+      text: typeof tweetData?.data?.text === "string" ? tweetData.data.text : undefined,
+    };
+
+    return successResponse(
+      res,
+      { postId, data: safePayload },
+      "Post published successfully on X"
+    );
+  } catch (error) {
+    console.error("[x:post:error]", { message: error?.message });
+    return errorResponse(res, error.message || "Could not publish post on X.", 500, error.code || "x_post_error");
   }
 }
 

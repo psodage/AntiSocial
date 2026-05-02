@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { getSocialAccounts } from "../services/socialApi";
 import { PLATFORM_CAPABILITY_MATRIX, SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
@@ -42,7 +42,17 @@ export default function CreatePostPage() {
   const [entitySelection, setEntitySelection] = useState({});
   const [file, setFile] = useState(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setToast } = useApp();
+
+  const scopedPlatformKey = useMemo(() => {
+    const raw = searchParams.get("platform")?.trim() || "";
+    if (!raw) return null;
+    const known = SOCIAL_PLATFORM_CONFIGS.some((c) => c.key === raw);
+    return known ? raw : null;
+  }, [searchParams]);
+
+  const entityIdFromUrl = useMemo(() => searchParams.get("entityId")?.trim() || "", [searchParams]);
 
   const imagePreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
@@ -60,6 +70,27 @@ export default function CreatePostPage() {
   const connectedPlatformConfigs = useMemo(() => {
     return SOCIAL_PLATFORM_CONFIGS.filter((platformConfig) => Boolean(connectedByPlatform[platformConfig.key]?.isConnected));
   }, [connectedByPlatform]);
+
+  const scopedAccountConnected = Boolean(scopedPlatformKey && connectedByPlatform[scopedPlatformKey]?.isConnected);
+
+  const composerPlatformConfigs = useMemo(() => {
+    if (scopedAccountConnected && scopedPlatformKey) {
+      return connectedPlatformConfigs.filter((c) => c.key === scopedPlatformKey);
+    }
+    return connectedPlatformConfigs;
+  }, [scopedAccountConnected, scopedPlatformKey, connectedPlatformConfigs]);
+
+  useEffect(() => {
+    if (!scopedPlatformKey) return;
+    if (!connectedByPlatform[scopedPlatformKey]?.isConnected) return;
+    setSelectedPlatform(scopedPlatformKey);
+  }, [scopedPlatformKey, connectedByPlatform]);
+
+  useEffect(() => {
+    if (!entityIdFromUrl || !scopedPlatformKey) return;
+    if (scopedPlatformKey !== "googleBusiness") return;
+    setEntitySelection((prev) => ({ ...prev, googleBusiness: entityIdFromUrl }));
+  }, [entityIdFromUrl, scopedPlatformKey]);
 
   const selectedPlatformConfig = useMemo(
     () => SOCIAL_PLATFORM_CONFIGS.find((item) => item.key === selectedPlatform) || null,
@@ -144,7 +175,7 @@ export default function CreatePostPage() {
     if (validationError) return setToast({ message: validationError, error: true });
     setCaption("");
     setFile(null);
-    setSelectedPlatform("");
+    setSelectedPlatform(scopedAccountConnected && scopedPlatformKey ? scopedPlatformKey : "");
     setToast({ message: `Published to ${selectedPlatformConfig?.label || selectedPlatform}.` });
   };
 
@@ -152,6 +183,28 @@ export default function CreatePostPage() {
     <section className="grid gap-5 lg:grid-cols-[1.15fr,0.85fr]">
       <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
         <h2 className="mb-4 text-sm font-semibold">Compose post</h2>
+        {scopedPlatformKey && !scopedAccountConnected ? (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100/90">
+            <p className="font-semibold">
+              {SOCIAL_PLATFORM_CONFIGS.find((c) => c.key === scopedPlatformKey)?.label || scopedPlatformKey} is not connected.
+            </p>
+            <p className="mt-1 text-xs opacity-90">Connect it to post here, or open the composer for all connected platforms.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                to={`/connected-platforms/${scopedPlatformKey}`}
+                className="inline-flex rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
+              >
+                Platform details
+              </Link>
+              <Link
+                to="/create-post"
+                className="inline-flex rounded-md border border-amber-800/30 px-3 py-2 text-xs font-semibold dark:border-amber-400/40"
+              >
+                All platforms
+              </Link>
+            </div>
+          </div>
+        ) : null}
         {!connectedPlatformConfigs.length ? (
           <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
             <p className="font-semibold">No connected platforms found.</p>
@@ -166,30 +219,43 @@ export default function CreatePostPage() {
           </div>
         ) : (
           <div className="mb-5">
-            <label className="mb-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">Select connected platform</label>
-            <div className="flex flex-wrap gap-2">
-              {connectedPlatformConfigs.map((platformConfig) => {
-                const platform = platformConfig.key;
-                const isActive = selectedPlatform === platform;
-                return (
-                  <button
-                    key={platformConfig.key}
-                    type="button"
-                    onClick={() => {
-                      setSelectedPlatform(platform);
-                      setFile(null);
-                    }}
-                    className={`rounded-full border px-3 py-1 text-sm ${
-                      isActive
-                        ? "border-brand-500 bg-brand-50 text-brand-600"
-                        : "border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    }`}
-                  >
-                    {platformConfig.label}
-                  </button>
-                );
-              })}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                {scopedAccountConnected
+                  ? `Posting to ${SOCIAL_PLATFORM_CONFIGS.find((c) => c.key === scopedPlatformKey)?.label || scopedPlatformKey}`
+                  : "Select connected platform"}
+              </label>
+              {scopedAccountConnected ? (
+                <Link to="/create-post" className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
+                  Choose another platform
+                </Link>
+              ) : null}
             </div>
+            {scopedAccountConnected ? null : (
+              <div className="flex flex-wrap gap-2">
+                {composerPlatformConfigs.map((platformConfig) => {
+                  const platform = platformConfig.key;
+                  const isActive = selectedPlatform === platform;
+                  return (
+                    <button
+                      key={platformConfig.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlatform(platform);
+                        setFile(null);
+                      }}
+                      className={`rounded-full border px-3 py-1 text-sm ${
+                        isActive
+                          ? "border-brand-500 bg-brand-50 text-brand-600"
+                          : "border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      {platformConfig.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {selectedPlatform ? (
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 {selectedLimits?.maxChars ? `Caption limit: ${selectedLimits.maxChars.toLocaleString()} chars.` : null}
@@ -198,6 +264,11 @@ export default function CreatePostPage() {
             ) : (
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Choose one platform to see its limits.</p>
             )}
+            {entityIdFromUrl && selectedPlatform && ["facebook", "linkedin"].includes(selectedPlatform) ? (
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Target: {selectedPlatform === "facebook" ? "Facebook Page" : "LinkedIn organization"} · ID {entityIdFromUrl}
+              </p>
+            ) : null}
           </div>
         )}
         <textarea
