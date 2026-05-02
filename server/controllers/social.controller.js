@@ -7,7 +7,8 @@ import { getProvider } from "../services/social/providerRegistry.js";
 import instagramService, { publishInstagramContent, INSTAGRAM_CAPTION_MAX_LENGTH } from "../services/social/instagram.service.js";
 import { META_SCOPE_SETS } from "../services/social/meta.service.js";
 import { decryptToken, encryptToken } from "../utils/crypto.js";
-import { publishFacebookPagePost } from "../services/social/facebookPublish.service.js";
+import { publishFacebookProfilePost } from "../services/social/facebookPublish.service.js";
+import facebookService from "../services/social/facebook.service.js";
 import { getSafeProviderDebugInfo, validateProviderConfig } from "../utils/providerConfig.util.js";
 import { getPlatformCapabilities } from "../config/platformCapabilities.js";
 import {
@@ -959,14 +960,6 @@ function parseFacebookPostBody(body) {
     throw err;
   }
 
-  const pageId = typeof body.pageId === "string" ? body.pageId.trim() : body.pageId != null ? String(body.pageId).trim() : "";
-  if (!pageId) {
-    const err = new Error("pageId is required.");
-    err.status = 400;
-    err.code = "validation_error";
-    throw err;
-  }
-
   const mediaTypeRaw = typeof body.mediaType === "string" ? body.mediaType.trim().toUpperCase() : "";
   if (!mediaTypeRaw || !["TEXT", "IMAGE", "VIDEO", "LINK"].includes(mediaTypeRaw)) {
     const err = new Error("mediaType is required and must be one of: TEXT, IMAGE, VIDEO, LINK.");
@@ -1078,7 +1071,6 @@ function parseFacebookPostBody(body) {
   }
 
   return {
-    pageId,
     mediaType: mediaTypeRaw,
     message,
     mediaUrl: mediaTypeRaw === "IMAGE" || mediaTypeRaw === "VIDEO" ? mediaUrl : "",
@@ -1095,42 +1087,46 @@ export async function createFacebookPost(req, res) {
   }
 
   const userId = new ObjectId(req.auth.userId);
-  const reconnectMessage = "Facebook Page is not connected or token expired. Please reconnect your Facebook Page.";
+  const reconnectMessage = "Facebook is not connected or token expired. Please reconnect Facebook.";
 
   try {
-    const account = await getStoredAccountForProvider(userId, "facebook");
+    let account = await getStoredAccountForProvider(userId, "facebook");
     if (!account || !account.isConnected) {
       return errorResponse(res, reconnectMessage, 401, "not_connected");
     }
 
-    const allowedIds = new Set(
-      (Array.isArray(account.metadata?.pages) ? account.metadata.pages : [])
-        .map((p) => (p?.id != null ? String(p.id) : ""))
-        .filter(Boolean)
-    );
-    if (!allowedIds.has(parsed.pageId)) {
-      return errorResponse(
-        res,
-        "You cannot post to a Facebook Page you do not manage, or the page is not connected.",
-        403,
-        "page_not_allowed"
-      );
+    let accessToken = account.getDecryptedAccessToken?.();
+    if (!accessToken) {
+      return errorResponse(res, reconnectMessage, 401, "token_missing");
     }
 
-    const enc =
-      account.pagePublishingTokens?.[parsed.pageId] ||
-      account.pagePublishingTokens?.[String(parsed.pageId)];
-    const pageToken = enc ? decryptToken(enc) : null;
-    if (!pageToken) {
-      console.warn("[facebook:post:missing-page-token]", { userId: String(userId), pageId: parsed.pageId });
-      return errorResponse(res, reconnectMessage, 401, "page_token_missing");
+    if (account.expiresAt && new Date(account.expiresAt).getTime() <= Date.now()) {
+      try {
+        const refreshed = await facebookService.refreshTokenIfNeeded(account);
+        if (refreshed?.accessToken) {
+          await refreshAccountToken(userId, "facebook", refreshed);
+          account = await getStoredAccountForProvider(userId, "facebook");
+          accessToken = account.getDecryptedAccessToken?.();
+        } else {
+          return errorResponse(res, reconnectMessage, 401, "token_expired");
+        }
+      } catch (refreshErr) {
+        console.warn("[facebook:post:refresh-failed]", { message: refreshErr?.message });
+        return errorResponse(res, reconnectMessage, 401, "token_expired");
+      }
     }
+
+    if (!accessToken) {
+      return errorResponse(res, reconnectMessage, 401, "token_missing");
+    }
+
+    const profileUserId = String(account.platformUserId || "").trim();
+    const targetName = account.accountName || account.username || profileUserId || "Facebook profile";
 
     let result;
     try {
-      result = await publishFacebookPagePost({
-        pageId: parsed.pageId,
-        pageAccessToken: pageToken,
+      result = await publishFacebookProfilePost({
+        userAccessToken: accessToken,
         mediaType: parsed.mediaType,
         message: parsed.message,
         mediaUrl: parsed.mediaUrl,
@@ -1162,18 +1158,15 @@ export async function createFacebookPost(req, res) {
     }
 
     const safeRaw = result.raw && typeof result.raw === "object" ? result.raw : {};
-    const pages = Array.isArray(account.metadata?.pages) ? account.metadata.pages : [];
-    const pageMeta = pages.find((p) => String(p.id) === String(parsed.pageId));
-    const targetPageName = pageMeta?.name || String(parsed.pageId);
 
     await recordSuccessfulPublish({
       userId,
       platform: "facebook",
-      platformAccountId: String(account.platformUserId || ""),
+      platformAccountId: profileUserId,
       platformAccountName: account.accountName || account.username || "",
-      targetType: "page",
-      targetId: parsed.pageId,
-      targetName: targetPageName,
+      targetType: "profile",
+      targetId: profileUserId,
+      targetName: targetName,
       content: parsed.message || "",
       mediaType: parsed.mediaType,
       mediaUrl: parsed.mediaUrl || "",

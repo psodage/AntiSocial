@@ -1,7 +1,7 @@
 import { Building2, MessageCircle, MessagesSquare, Megaphone, Pin, Sparkles, Users, Video } from "lucide-react";
 
 export const SOCIAL_PLATFORM_CONFIGS = [
-  { key: "facebook", label: "Facebook", icon: Users, hint: "Profile + Pages" },
+  { key: "facebook", label: "Facebook", icon: Users, hint: "Personal profile" },
   { key: "instagram", label: "Instagram", icon: Sparkles, hint: "Professional account only" },
   { key: "threads", label: "Threads", icon: MessageCircle, hint: "Threads profile publishing" },
   { key: "linkedin", label: "LinkedIn", icon: Megaphone, hint: "Profile + organizations/pages by access" },

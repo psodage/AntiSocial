@@ -1,23 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X as CloseIcon } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { postToFacebook, uploadSocialPublicMedia } from "../../services/socialApi";
 
 const MAX_MESSAGE = 63206;
-
-function getFacebookPagesFromAccount(account) {
-  const fromMetadata = Array.isArray(account?.metadata?.pages) ? account.metadata.pages : [];
-  if (fromMetadata.length) {
-    return fromMetadata
-      .filter((p) => p?.id)
-      .map((p) => ({ id: String(p.id), name: p.name || "Untitled page" }))
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }
-  return (Array.isArray(account?.entities) ? account.entities : [])
-    .filter((e) => e.entityType === "page" && e.entityId)
-    .map((e) => ({ id: String(e.entityId), name: e.accountName || e.name || "Untitled page" }))
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-}
 
 function isValidHttpUrl(value) {
   if (!value || typeof value !== "string") return false;
@@ -34,11 +20,9 @@ function isValidHttpUrl(value) {
  * @param {boolean} props.open
  * @param {() => void} props.onClose
  * @param {object | null | undefined} props.account Grouped Facebook account from AppContext
- * @param {string} [props.presetPageId]
  */
-export default function FacebookCreatePostModal({ open, onClose, account, presetPageId = "", onPublishSuccess }) {
+export default function FacebookCreatePostModal({ open, onClose, account, onPublishSuccess }) {
   const { setToast } = useApp();
-  const [pageId, setPageId] = useState("");
   const [message, setMessage] = useState("");
   const [mediaType, setMediaType] = useState("TEXT");
   const [mediaUrlInput, setMediaUrlInput] = useState("");
@@ -49,13 +33,10 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
   const [posting, setPosting] = useState(false);
   const prevOpen = useRef(false);
 
-  const pages = useMemo(() => getFacebookPagesFromAccount(account), [account]);
-  const hasPages = pages.length > 0;
+  const connected = Boolean(account?.isConnected);
 
   useEffect(() => {
     if (open && !prevOpen.current) {
-      const preset = presetPageId && pages.some((p) => p.id === presetPageId) ? presetPageId : pages[0]?.id || "";
-      setPageId(preset);
       setMessage("");
       setMediaType("TEXT");
       setMediaUrlInput("");
@@ -65,14 +46,7 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
       setSubmitError("");
     }
     prevOpen.current = open;
-  }, [open, presetPageId, pages]);
-
-  useEffect(() => {
-    if (!open || !presetPageId) return;
-    if (pages.some((p) => p.id === presetPageId)) {
-      setPageId(presetPageId);
-    }
-  }, [open, presetPageId, pages]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -83,10 +57,8 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
 
   const validate = () => {
     const next = {};
-    if (!hasPages) {
-      next.page = "No Facebook Page connected. Please connect a Facebook Page first.";
-    } else if (!pageId) {
-      next.page = "Select a Facebook Page.";
+    if (!connected) {
+      next.account = "Connect Facebook before publishing.";
     }
 
     if (mediaType === "TEXT") {
@@ -130,8 +102,7 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
 
   const submitDisabled =
     posting ||
-    !hasPages ||
-    !pageId ||
+    !connected ||
     msgLen > MAX_MESSAGE ||
     (mediaType === "TEXT" && (!trimmedMessage || trimmedMediaUrl || trimmedLink)) ||
     (mediaType === "LINK" && (!trimmedLink || !isValidHttpUrl(trimmedLink) || trimmedMediaUrl)) ||
@@ -161,7 +132,6 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
     }
 
     const payload = {
-      pageId,
       message: trimmedMessage,
       mediaType,
       mediaUrl: mediaType === "IMAGE" || mediaType === "VIDEO" ? resolvedMediaUrl : "",
@@ -186,9 +156,9 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
         lower.includes("reconnect") ||
         lower.includes("not connected") ||
         lower.includes("token expired") ||
-        lower.includes("page is not connected")
+        lower.includes("facebook is not connected")
       ) {
-        setSubmitError("Facebook Page is not connected or token expired. Please reconnect your Facebook Page.");
+        setSubmitError("Facebook is not connected or token expired. Please reconnect Facebook.");
       } else {
         setSubmitError(msg);
       }
@@ -223,42 +193,21 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
         <h2 id="fb-create-post-title" className="pr-8 text-lg font-semibold text-white">
           Create post on Facebook
         </h2>
-        <p className="mt-1 text-xs text-slate-400">Posts are published to a Facebook Page (not a personal profile).</p>
+        <p className="mt-1 text-xs text-slate-400">
+          Posts are published to your connected personal Facebook profile ({account?.accountName || account?.username || "profile"}).
+        </p>
 
         <form className="mt-4 space-y-4" onSubmit={handleSubmit} noValidate>
-          <div>
-            <label htmlFor="fb-page" className="mb-1 block text-xs font-medium text-slate-400">
-              Facebook Page
-            </label>
-            {hasPages ? (
-              <select
-                id="fb-page"
-                className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500"
-                value={pageId}
-                onChange={(e) => {
-                  setPageId(e.target.value);
-                  setErrors((prev) => ({ ...prev, page: undefined }));
-                }}
-                disabled={posting}
-                aria-invalid={Boolean(errors.page)}
-              >
-                {pages.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.id})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100/90">
-                No Facebook Page connected. Please connect a Facebook Page first.
-              </p>
-            )}
-            {errors.page ? (
-              <p className="mt-1 text-xs text-rose-400" role="alert">
-                {errors.page}
-              </p>
-            ) : null}
-          </div>
+          {!connected ? (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100/90">
+              Connect Facebook first from Connected Platforms.
+            </p>
+          ) : null}
+          {errors.account ? (
+            <p className="text-xs text-rose-400" role="alert">
+              {errors.account}
+            </p>
+          ) : null}
 
           <div>
             <span className="mb-1 block text-xs font-medium text-slate-400">Post type</span>
@@ -418,7 +367,7 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
               className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={submitDisabled}
             >
-              {posting ? "Posting…" : "Publish to Page"}
+              {posting ? "Posting…" : "Publish to profile"}
             </button>
           </div>
         </form>

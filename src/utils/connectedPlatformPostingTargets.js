@@ -8,7 +8,6 @@
  * @property {string} sublabel
  * @property {string} imageUrl
  * @property {string} path
- * @property {string} [facebookPageId]
  * @property {{ targetType: 'profile' | 'organization', organizationId: string | null } | null} [linkedinAction]
  * @property {{ accountId: string, locationId: string } | null} [googleBusinessPreset]
  * @property {string} [telegramChatId]
@@ -47,14 +46,6 @@ function placeholderImage(platformKey) {
   return `https://placehold.co/96x96/0f172a/94a3b8?text=${encodeURIComponent(abbrev)}`;
 }
 
-function getFacebookPagesList(account) {
-  const fromMetadata = Array.isArray(account.metadata?.pages) ? account.metadata.pages : [];
-  if (fromMetadata.length) {
-    return fromMetadata.filter((p) => p?.id).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }
-  return (Array.isArray(account.entities) ? account.entities : []).filter((entity) => entity.entityType === "page");
-}
-
 /**
  * @param {string} platformKey
  * @param {object | null | undefined} account Grouped social account from API (`entities`, `metadata`, …).
@@ -73,42 +64,27 @@ export function buildPostingTargetsConfig(platformKey, account) {
   });
 
   if (platformKey === "facebook") {
-    const facebookPagesList = getFacebookPagesList(account);
+    const row = primaryRow();
+    const pid = row.entityId || account.platformUserId || "";
     /** @type {PostingTargetCard[]} */
-    const cards = [];
-    for (const page of facebookPagesList) {
-      const pid = page.id != null ? String(page.id) : "";
-      if (!pid) continue;
-      cards.push({
-        key: `page-${pid}`,
-        badge: "page",
-        title: page.name || "Untitled page",
-        sublabel: `Facebook Page · ID ${pid}${page.hasLinkedInstagram ? " · Instagram linked" : ""}`,
-        imageUrl: placeholderImage("facebook"),
+    const cards = [
+      {
+        key: `profile-${pid}`,
+        badge: "profile",
+        title: row.accountName || row.username || "Your Facebook profile",
+        sublabel: pid ? `Facebook profile · ID ${pid}` : "Facebook profile",
+        imageUrl: row.profileImage || placeholderImage("facebook"),
         path: `/connected-platforms/facebook`,
-        facebookPageId: pid,
-      });
-    }
-    const pageDiscoveryErrorCode = account.metadata?.pageDiscoveryErrorCode;
-    const emptyBanner =
-      facebookPagesList.length === 0
-        ? {
-            tone: pageDiscoveryErrorCode === "meta_pages_permission_missing" ? "amber" : "neutral",
-            text:
-              pageDiscoveryErrorCode === "meta_pages_permission_missing"
-                ? "Meta did not return Pages for this token (often missing Page permissions in your app). Update Meta Login permissions and reconnect."
-                : "No Facebook Page connected. Please connect a Facebook Page first.",
-          }
-        : null;
+      },
+    ];
 
     return {
-      title: "Facebook Pages",
-      description:
-        "Publish to a Facebook Page you manage using the Page access token from your connection. Personal profile posting is not available here.",
+      title: "Facebook profile",
+      description: "Publish to your personal Facebook timeline using your Meta login token. Page publishing is not used here.",
       primaryCtaLabel: "Create post",
       primaryCtaPath: "/connected-platforms/facebook",
       cards,
-      emptyBanner,
+      emptyBanner: null,
     };
   }
 

@@ -71,11 +71,7 @@ export default function ConnectedPlatformDetailPage() {
   const [xPostModalOpen, setXPostModalOpen] = useState(false);
   const openXComposer = () => setXPostModalOpen(true);
   const [facebookPostModalOpen, setFacebookPostModalOpen] = useState(false);
-  const [facebookPresetPageId, setFacebookPresetPageId] = useState("");
-  const openFacebookComposer = (pageId = "") => {
-    setFacebookPresetPageId(pageId || "");
-    setFacebookPostModalOpen(true);
-  };
+  const openFacebookComposer = () => setFacebookPostModalOpen(true);
 
   const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
@@ -129,11 +125,6 @@ export default function ConnectedPlatformDetailPage() {
     if (platformKey !== "linkedin" || !Array.isArray(account?.entities)) return 0;
     return account.entities.filter((entity) => entity.entityType === "organization").length;
   }, [platformKey, account?.entities]);
-
-  const facebookPageOnlyCount = useMemo(() => {
-    if (platformKey !== "facebook" || !postingTargets?.cards?.length) return 0;
-    return postingTargets.cards.filter((c) => c.badge === "page").length;
-  }, [platformKey, postingTargets?.cards]);
 
   if (!platformConfig) {
     return (
@@ -201,11 +192,6 @@ export default function ConnectedPlatformDetailPage() {
               <span className="text-slate-400">Posting targets:</span> {postingTargets.cards.length}
             </p>
           ) : null}
-          {platformKey === "facebook" ? (
-            <p>
-              <span className="text-slate-400">Facebook Pages:</span> {facebookPageOnlyCount}
-            </p>
-          ) : null}
           {platformKey === "linkedin" ? (
             <p>
               <span className="text-slate-400">Company pages:</span> {linkedInOrgCount}
@@ -252,7 +238,7 @@ export default function ConnectedPlatformDetailPage() {
                 onClick={() => {
                   if (platformKey === "x") openXComposer();
                   else if (platformKey === "linkedin") openLinkedInComposer({ targetType: "profile", organizationId: null });
-                  else if (platformKey === "facebook") openFacebookComposer("");
+                  else if (platformKey === "facebook") openFacebookComposer();
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(null);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
@@ -276,7 +262,7 @@ export default function ConnectedPlatformDetailPage() {
                 onClick={() => {
                   if (platformKey === "x") openXComposer();
                   else if (platformKey === "linkedin" && card.linkedinAction) openLinkedInComposer(card.linkedinAction);
-                  else if (platformKey === "facebook") openFacebookComposer(card.facebookPageId || "");
+                  else if (platformKey === "facebook") openFacebookComposer();
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(card.googleBusinessPreset);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
@@ -340,12 +326,8 @@ export default function ConnectedPlatformDetailPage() {
       {platformKey === "facebook" ? (
         <FacebookCreatePostModal
           open={facebookPostModalOpen}
-          onClose={() => {
-            setFacebookPostModalOpen(false);
-            setFacebookPresetPageId("");
-          }}
+          onClose={() => setFacebookPostModalOpen(false)}
           account={account}
-          presetPageId={facebookPresetPageId}
           onPublishSuccess={bumpHistory}
         />
       ) : null}

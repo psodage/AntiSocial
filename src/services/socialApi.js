@@ -240,13 +240,21 @@ export async function postToLinkedIn(payload, mediaFile) {
 
 /**
  * @param {{
- *   pageId: string,
  *   message: string,
  *   mediaType: 'TEXT' | 'IMAGE' | 'VIDEO' | 'LINK',
  *   mediaUrl?: string,
  *   linkUrl?: string,
  * }} payload
  */
+export async function postToFacebook(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/facebook/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on Facebook.");
+  }
+}
+
 /**
  * Upload a video to the connected YouTube channel (multipart field `video`). Server uses stored Google tokens only.
  * @param {{
@@ -292,15 +300,6 @@ export async function postYouTubeVideo(payload, onUploadProgress) {
     return data;
   } catch (error) {
     throw parseApiError(error, "Unable to upload video to YouTube.");
-  }
-}
-
-export async function postToFacebook(payload) {
-  try {
-    const { data } = await socialClient.post("/api/social/facebook/post", payload);
-    return data;
-  } catch (error) {
-    throw parseApiError(error, "Unable to publish post on Facebook.");
   }
 }
 

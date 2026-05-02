@@ -36,25 +36,24 @@ const formHeaders = { "Content-Type": "application/x-www-form-urlencoded" };
 
 /**
  * @param {{
- *   pageId: string,
- *   pageAccessToken: string,
+ *   userAccessToken: string,
  *   mediaType: 'TEXT' | 'IMAGE' | 'VIDEO' | 'LINK',
  *   message: string,
  *   mediaUrl: string,
  *   linkUrl: string,
  * }} opts
  */
-export async function publishFacebookPagePost(opts) {
-  const { pageId, pageAccessToken, mediaType, message, mediaUrl, linkUrl } = opts;
-  const token = pageAccessToken;
-  if (!pageId || !token) {
-    throw createPublishError("Missing page or access token.", "facebook_publish_invalid", 400);
+export async function publishFacebookProfilePost(opts) {
+  const { userAccessToken, mediaType, message, mediaUrl, linkUrl } = opts;
+  const token = userAccessToken;
+  if (!token) {
+    throw createPublishError("Missing access token.", "facebook_publish_invalid", 400);
   }
 
   try {
     if (mediaType === "TEXT") {
       const body = formBody({ message, access_token: token });
-      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/${pageId}/feed`, body, { headers: formHeaders });
+      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/me/feed`, body, { headers: formHeaders });
       return { postId: data?.id ? String(data.id) : "", raw: { id: data?.id } };
     }
 
@@ -64,7 +63,7 @@ export async function publishFacebookPagePost(opts) {
         link: linkUrl,
         access_token: token,
       });
-      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/${pageId}/feed`, body, { headers: formHeaders });
+      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/me/feed`, body, { headers: formHeaders });
       return { postId: data?.id ? String(data.id) : "", raw: { id: data?.id } };
     }
 
@@ -74,7 +73,7 @@ export async function publishFacebookPagePost(opts) {
         caption: message || undefined,
         access_token: token,
       });
-      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/${pageId}/photos`, body, { headers: formHeaders });
+      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/me/photos`, body, { headers: formHeaders });
       const postId = data?.post_id ? String(data.post_id) : data?.id ? String(data.id) : "";
       return { postId, raw: { id: data?.id, post_id: data?.post_id } };
     }
@@ -85,7 +84,7 @@ export async function publishFacebookPagePost(opts) {
         description: message || undefined,
         access_token: token,
       });
-      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/${pageId}/videos`, body, { headers: formHeaders });
+      const { data } = await axios.post(`${META_GRAPH_BASE_URL}/me/videos`, body, { headers: formHeaders });
       return { postId: data?.id ? String(data.id) : "", raw: data };
     }
 

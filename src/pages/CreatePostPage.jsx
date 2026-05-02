@@ -354,7 +354,7 @@ export default function CreatePostPage() {
             )}
             {entityIdFromUrl && selectedPlatform && ["facebook", "linkedin"].includes(selectedPlatform) ? (
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Target: {selectedPlatform === "facebook" ? "Facebook Page" : "LinkedIn organization"} · ID {entityIdFromUrl}
+                Target: {selectedPlatform === "facebook" ? "Facebook profile" : "LinkedIn organization"} · ID {entityIdFromUrl}
               </p>
             ) : null}
           </div>

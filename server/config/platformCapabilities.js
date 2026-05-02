@@ -8,7 +8,7 @@ export const PLATFORM_CAPABILITIES = {
     businessSupport: true,
     webhooks: true,
     supportLevel: "full",
-    accountTypes: ["profile", "page"],
+    accountTypes: ["profile"],
     badges: ["Posting", "Analytics"],
   },
   instagram: {
