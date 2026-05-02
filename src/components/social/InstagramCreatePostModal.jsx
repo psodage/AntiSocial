@@ -16,7 +16,7 @@ function initialFieldErrors() {
   return { caption: "", media: "", mediaType: "", general: "" };
 }
 
-export default function InstagramCreatePostModal({ open, onClose }) {
+export default function InstagramCreatePostModal({ open, onClose, onPublishSuccess }) {
   const { setToast, refreshConnectedAccounts } = useApp();
   const [caption, setCaption] = useState("");
   const [mediaType, setMediaType] = useState("IMAGE");
@@ -205,6 +205,7 @@ export default function InstagramCreatePostModal({ open, onClose }) {
         throw new Error(result?.message || "Instagram publishing failed.");
       }
       setToast({ message: result.message || "Post published successfully on Instagram." });
+      onPublishSuccess?.();
       try {
         await refreshConnectedAccounts();
       } catch {

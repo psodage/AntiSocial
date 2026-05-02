@@ -11,6 +11,7 @@ import {
   disconnectSocialPlatform,
   instagramOauthCallback,
   listSocialAccounts,
+  listSocialPostHistory,
   manualConnectSocialPlatform,
   metaOauthCallback,
   oauthCallback,
@@ -34,6 +35,7 @@ export function createSocialRoutes(requireAuth) {
   router.post("/facebook/post", requireAuth, createFacebookPost);
   router.post("/x/post", requireAuth, createXPost);
   router.get("/accounts", requireAuth, listSocialAccounts);
+  router.get("/history", requireAuth, listSocialPostHistory);
   router.get("/threads/connect", requireAuth, connectThreads);
   router.get("/threads/callback", threadsOauthCallback);
   router.post("/threads/disconnect", requireAuth, disconnectThreads);

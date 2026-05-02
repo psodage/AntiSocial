@@ -5,7 +5,7 @@ import { postToX } from "../../services/socialApi";
 
 const MAX = 280;
 
-export default function XCreatePostModal({ open, onClose }) {
+export default function XCreatePostModal({ open, onClose, onPublishSuccess }) {
   const { setToast } = useApp();
   const [content, setContent] = useState("");
   const [fieldError, setFieldError] = useState("");
@@ -50,6 +50,7 @@ export default function XCreatePostModal({ open, onClose }) {
     try {
       await postToX(trimmed);
       setToast({ message: "Post published successfully on X." });
+      onPublishSuccess?.();
       setContent("");
       setFieldError("");
       onClose();

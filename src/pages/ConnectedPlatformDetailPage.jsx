@@ -9,6 +9,8 @@ import FacebookCreatePostModal from "../components/social/FacebookCreatePostModa
 import LinkedInCreatePostModal from "../components/social/LinkedInCreatePostModal";
 import ThreadsCreatePostModal from "../components/social/ThreadsCreatePostModal";
 import InstagramCreatePostModal from "../components/social/InstagramCreatePostModal";
+import PlatformDetailTabBar from "../components/social/PlatformDetailTabBar";
+import PostHistoryPanel from "../components/social/PostHistoryPanel";
 
 function formatPlatformLabel(platformKey) {
   const config = SOCIAL_PLATFORM_CONFIGS.find((platform) => platform.key === platformKey);
@@ -73,6 +75,9 @@ export default function ConnectedPlatformDetailPage() {
 
   const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
   const [linkedinPreset, setLinkedinPreset] = useState({ targetType: "profile", organizationId: null });
+  const [detailTab, setDetailTab] = useState("overview");
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const bumpHistory = () => setHistoryRefreshKey((n) => n + 1);
   const openLinkedInComposer = (action) => {
     setLinkedinPreset(
       action && typeof action === "object"
@@ -138,15 +143,6 @@ export default function ConnectedPlatformDetailPage() {
             <p className="mt-1 text-sm text-slate-300">Connection details, account identity, and sync metadata for this platform.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {platformKey === "instagram" ? (
-              <button
-                type="button"
-                onClick={() => setInstagramComposerOpen(true)}
-                className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600"
-              >
-                Create post
-              </button>
-            ) : null}
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
               <CheckCircle2 size={14} />
               Connected
@@ -155,6 +151,9 @@ export default function ConnectedPlatformDetailPage() {
         </div>
       </article>
 
+      <PlatformDetailTabBar active={detailTab} onChange={setDetailTab} />
+
+      {detailTab === "overview" ? (
       <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
         <h2 className="text-sm font-semibold text-white">Account</h2>
         <div className="mt-3 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
@@ -187,8 +186,26 @@ export default function ConnectedPlatformDetailPage() {
           ) : null}
         </div>
       </article>
+      ) : null}
 
-      {postingTargets ? (
+      {detailTab === "overview" ? (
+      <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+        <h2 className="text-sm font-semibold text-white">Capabilities</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {capabilities.length ? (
+            capabilities.map((badge) => (
+              <span key={badge} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-300">
+                {badge}
+              </span>
+            ))
+          ) : (
+            <p className="text-sm text-slate-400">No capabilities reported.</p>
+          )}
+        </div>
+      </article>
+      ) : null}
+
+      {detailTab === "create" && postingTargets ? (
         <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -257,7 +274,27 @@ export default function ConnectedPlatformDetailPage() {
         </article>
       ) : null}
 
-      {platformKey === "x" ? <XCreatePostModal open={xPostModalOpen} onClose={() => setXPostModalOpen(false)} /> : null}
+      {detailTab === "create" && !postingTargets ? (
+        <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+          <h2 className="text-sm font-semibold text-white">Create post</h2>
+          <p className="mt-2 text-sm text-slate-400">
+            This dashboard view does not list posting shortcuts for {label} yet. Use the composer to publish when your connection supports it.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate(`/create-post?platform=${encodeURIComponent(platformKey)}`)}
+            className="mt-4 rounded-md bg-brand-500 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-600"
+          >
+            Open composer
+          </button>
+        </article>
+      ) : null}
+
+      {detailTab === "history" ? <PostHistoryPanel platformKey={platformKey} refreshKey={historyRefreshKey} /> : null}
+
+      {platformKey === "x" ? (
+        <XCreatePostModal open={xPostModalOpen} onClose={() => setXPostModalOpen(false)} onPublishSuccess={bumpHistory} />
+      ) : null}
       {platformKey === "facebook" ? (
         <FacebookCreatePostModal
           open={facebookPostModalOpen}
@@ -267,6 +304,7 @@ export default function ConnectedPlatformDetailPage() {
           }}
           account={account}
           presetPageId={facebookPresetPageId}
+          onPublishSuccess={bumpHistory}
         />
       ) : null}
       {platformKey === "linkedin" ? (
@@ -275,30 +313,16 @@ export default function ConnectedPlatformDetailPage() {
           onClose={() => setLinkedinModalOpen(false)}
           account={account}
           preset={linkedinPreset}
+          onPublishSuccess={bumpHistory}
         />
       ) : null}
 
       {platformKey === "threads" ? (
-        <ThreadsCreatePostModal open={threadsComposerOpen} onClose={() => setThreadsComposerOpen(false)} />
+        <ThreadsCreatePostModal open={threadsComposerOpen} onClose={() => setThreadsComposerOpen(false)} onPublishSuccess={bumpHistory} />
       ) : null}
       {platformKey === "instagram" ? (
-        <InstagramCreatePostModal open={instagramComposerOpen} onClose={() => setInstagramComposerOpen(false)} />
+        <InstagramCreatePostModal open={instagramComposerOpen} onClose={() => setInstagramComposerOpen(false)} onPublishSuccess={bumpHistory} />
       ) : null}
-
-      <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
-        <h2 className="text-sm font-semibold text-white">Capabilities</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {capabilities.length ? (
-            capabilities.map((badge) => (
-              <span key={badge} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-300">
-                {badge}
-              </span>
-            ))
-          ) : (
-            <p className="text-sm text-slate-400">No capabilities reported.</p>
-          )}
-        </div>
-      </article>
     </section>
   );
 }

@@ -36,7 +36,7 @@ function isValidHttpUrl(value) {
  * @param {object | null | undefined} props.account Grouped Facebook account from AppContext
  * @param {string} [props.presetPageId]
  */
-export default function FacebookCreatePostModal({ open, onClose, account, presetPageId = "" }) {
+export default function FacebookCreatePostModal({ open, onClose, account, presetPageId = "", onPublishSuccess }) {
   const { setToast } = useApp();
   const [pageId, setPageId] = useState("");
   const [message, setMessage] = useState("");
@@ -172,6 +172,7 @@ export default function FacebookCreatePostModal({ open, onClose, account, preset
     try {
       await postToFacebook(payload);
       setToast({ message: "Post published successfully on Facebook." });
+      onPublishSuccess?.();
       setMessage("");
       setMediaUrlInput("");
       setLinkUrl("");

@@ -237,3 +237,35 @@ export async function postToFacebook(payload) {
     throw parseApiError(error, "Unable to publish post on Facebook.");
   }
 }
+
+/**
+ * @param {{
+ *   platform: string,
+ *   mediaType?: string,
+ *   search?: string,
+ *   startDate?: string,
+ *   endDate?: string,
+ *   page?: number,
+ *   limit?: number,
+ * }} params
+ */
+export async function getPostHistory(params = {}) {
+  try {
+    const searchParams = new URLSearchParams();
+    if (params.platform) searchParams.set("platform", params.platform);
+    if (params.mediaType) searchParams.set("mediaType", params.mediaType);
+    if (params.search) searchParams.set("search", params.search);
+    if (params.startDate) searchParams.set("startDate", params.startDate);
+    if (params.endDate) searchParams.set("endDate", params.endDate);
+    searchParams.set("page", String(params.page ?? 1));
+    searchParams.set("limit", String(params.limit ?? 10));
+    const qs = searchParams.toString();
+    const { data } = await socialClient.get(`/api/social/history?${qs}`);
+    return {
+      records: Array.isArray(data.data) ? data.data : [],
+      pagination: data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0 },
+    };
+  } catch (error) {
+    throw parseApiError(error, "Unable to load post history.");
+  }
+}

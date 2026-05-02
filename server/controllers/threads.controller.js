@@ -5,6 +5,7 @@ import { errorResponse, successResponse } from "../utils/apiResponse.js";
 import threadsService, { THREADS_TEXT_MAX_LENGTH } from "../services/social/threads.service.js";
 import { validateProviderConfig, getSafeProviderDebugInfo } from "../utils/providerConfig.util.js";
 import { disconnectAccount, getStoredAccountForProvider, upsertConnectedAccount } from "../services/social/socialAccount.service.js";
+import { recordSuccessfulPublish } from "../services/social/postHistory.service.js";
 
 const THREADS_SCOPE_SETS = {
   basic: ["threads_basic"],
@@ -316,6 +317,29 @@ export async function createThreadsPost(req, res) {
     if (published && typeof published === "object") {
       if (published.id !== undefined) safeData.publishedId = String(published.id);
     }
+
+    const threadsUsername = (account.username || "").replace(/^@/, "");
+    const externalPostUrl =
+      threadsUsername && postId
+        ? `https://www.threads.net/@${encodeURIComponent(threadsUsername)}/post/${encodeURIComponent(postId)}`
+        : "";
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "threads",
+      platformAccountId: threadsUserId,
+      platformAccountName: account.accountName || account.username || "",
+      targetType: "profile",
+      targetId: threadsUserId,
+      targetName: account.username || account.accountName || threadsUserId,
+      content: payload.text || "",
+      mediaType: payload.mediaType,
+      mediaUrl: payload.mediaUrl || "",
+      linkUrl: "",
+      externalPostId: String(postId || ""),
+      externalPostUrl,
+      apiSnapshot: safeData,
+    });
 
     return successResponse(
       res,

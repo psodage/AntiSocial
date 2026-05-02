@@ -21,6 +21,7 @@ import {
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
 import linkedinProvider from "../services/social/linkedin.service.js";
+import { listPostHistoryForUser, recordSuccessfulPublish } from "../services/social/postHistory.service.js";
 
 const META_PLATFORMS = new Set(["facebook"]);
 const META_UPGRADE_SCOPE_SETS = {
@@ -119,6 +120,23 @@ export async function listSocialAccounts(req, res) {
     return successResponse(res, { accounts }, "Fetched social accounts.");
   } catch (error) {
     return errorResponse(res, "Unable to fetch connected accounts.", 500, error.message);
+  }
+}
+
+export async function listSocialPostHistory(req, res) {
+  try {
+    const userId = new ObjectId(req.auth.userId);
+    const { data, pagination } = await listPostHistoryForUser({ userId, query: req.query });
+    return res.status(200).json({
+      success: true,
+      message: "Post history fetched successfully",
+      data,
+      pagination,
+      error: null,
+    });
+  } catch (error) {
+    const status = error?.status >= 400 && error?.status < 600 ? error.status : 400;
+    return errorResponse(res, error.message || "Unable to fetch post history.", status, error.code || "history_fetch_failed");
   }
 }
 
@@ -685,6 +703,23 @@ export async function createXPost(req, res) {
       text: typeof tweetData?.data?.text === "string" ? tweetData.data.text : undefined,
     };
 
+    await recordSuccessfulPublish({
+      userId,
+      platform: "x",
+      platformAccountId: String(account.platformUserId || ""),
+      platformAccountName: account.accountName || account.username || "",
+      targetType: "profile",
+      targetId: String(account.platformUserId || ""),
+      targetName: account.username || account.accountName || "",
+      content,
+      mediaType: "TEXT",
+      mediaUrl: "",
+      linkUrl: "",
+      externalPostId: postId,
+      externalPostUrl: postId ? `https://x.com/i/web/status/${encodeURIComponent(postId)}` : "",
+      apiSnapshot: safePayload,
+    });
+
     return successResponse(
       res,
       { postId, data: safePayload },
@@ -1046,6 +1081,27 @@ export async function createFacebookPost(req, res) {
     }
 
     const safeRaw = result.raw && typeof result.raw === "object" ? result.raw : {};
+    const pages = Array.isArray(account.metadata?.pages) ? account.metadata.pages : [];
+    const pageMeta = pages.find((p) => String(p.id) === String(parsed.pageId));
+    const targetPageName = pageMeta?.name || String(parsed.pageId);
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "facebook",
+      platformAccountId: String(account.platformUserId || ""),
+      platformAccountName: account.accountName || account.username || "",
+      targetType: "page",
+      targetId: parsed.pageId,
+      targetName: targetPageName,
+      content: parsed.message || "",
+      mediaType: parsed.mediaType,
+      mediaUrl: parsed.mediaUrl || "",
+      linkUrl: parsed.linkUrl || "",
+      externalPostId: result.postId,
+      externalPostUrl: result.postId ? `https://www.facebook.com/${encodeURIComponent(result.postId)}` : "",
+      apiSnapshot: safeRaw,
+    });
+
     return successResponse(res, { postId: result.postId, data: safeRaw }, "Post published successfully on Facebook");
   } catch (error) {
     console.error("[facebook:post:error]", { message: error?.message });
@@ -1088,6 +1144,12 @@ export async function createLinkedInPost(req, res) {
     }
 
     let authorUrn;
+    /** @type {{ targetType: string, targetId: string, targetName: string }} */
+    let historyTarget = {
+      targetType: "profile",
+      targetId: personId,
+      targetName: tokenAccount.accountName || tokenAccount.username || personId,
+    };
     if (parsed.targetType === "profile") {
       authorUrn = `urn:li:person:${personId}`;
     } else {
@@ -1101,6 +1163,11 @@ export async function createLinkedInPost(req, res) {
         );
       }
       authorUrn = `urn:li:organization:${parsed.organizationId}`;
+      historyTarget = {
+        targetType: "organization",
+        targetId: String(parsed.organizationId),
+        targetName: orgAccount.accountName || orgAccount.name || String(parsed.organizationId),
+      };
     }
 
     const commentary = parsed.content;
@@ -1134,6 +1201,25 @@ export async function createLinkedInPost(req, res) {
     }
 
     const postId = result.id || "";
+    const historyContent =
+      parsed.mediaType === "LINK" ? [parsed.content, parsed.linkUrl].filter(Boolean).join("\n") || parsed.linkUrl : parsed.content;
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "linkedin",
+      platformAccountId: personId,
+      platformAccountName: tokenAccount.accountName || tokenAccount.username || "",
+      targetType: historyTarget.targetType,
+      targetId: historyTarget.targetId,
+      targetName: historyTarget.targetName,
+      content: historyContent,
+      mediaType: parsed.mediaType,
+      mediaUrl: "",
+      linkUrl: parsed.mediaType === "LINK" ? parsed.linkUrl : "",
+      externalPostId: postId,
+      externalPostUrl: postId ? `https://www.linkedin.com/feed/update/${encodeURIComponent(postId)}` : "",
+      apiSnapshot: { id: postId },
+    });
 
     return successResponse(
       res,
@@ -1307,6 +1393,30 @@ export async function postToInstagram(req, res) {
       mediaUrl,
       mediaUrls,
       caption: captionRaw.length ? captionRaw : undefined,
+    });
+
+    let primaryMediaUrl = "";
+    if (mediaType === "CAROUSEL" && Array.isArray(mediaUrls) && mediaUrls.length) {
+      primaryMediaUrl = mediaUrls[0];
+    } else if (mediaUrl) {
+      primaryMediaUrl = mediaUrl;
+    }
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "instagram",
+      platformAccountId: igUserId,
+      platformAccountName: account.accountName || account.username || "",
+      targetType: "professional",
+      targetId: igUserId,
+      targetName: account.accountName || account.username || igUserId,
+      content: captionRaw,
+      mediaType,
+      mediaUrl: primaryMediaUrl,
+      linkUrl: "",
+      externalPostId: result.postId,
+      externalPostUrl: "",
+      apiSnapshot: { id: result.postId, creationId: result.creationId },
     });
 
     return res.status(200).json({

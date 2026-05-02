@@ -12,7 +12,7 @@ function initialErrors() {
   return { text: "", mediaUrl: "", mediaType: "", file: "", submit: "" };
 }
 
-export default function ThreadsCreatePostModal({ open, onClose }) {
+export default function ThreadsCreatePostModal({ open, onClose, onPublishSuccess }) {
   const { setToast } = useApp();
   const [text, setText] = useState("");
   const [mediaType, setMediaType] = useState("TEXT");
@@ -108,6 +108,7 @@ export default function ThreadsCreatePostModal({ open, onClose }) {
       setToast({
         message: postId ? `${result.message || "Posted to Threads."} (id: ${postId})` : result?.message || "Posted to Threads.",
       });
+      onPublishSuccess?.();
       resetForm();
       onClose();
     } catch (err) {

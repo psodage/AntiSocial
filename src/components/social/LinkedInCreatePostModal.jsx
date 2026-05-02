@@ -22,7 +22,7 @@ function isValidHttpUrl(value) {
  * @param {object | null | undefined} props.account Grouped LinkedIn account from AppContext (`entities`, …).
  * @param {{ targetType: 'profile' | 'organization', organizationId: string | null }} props.preset
  */
-export default function LinkedInCreatePostModal({ open, onClose, account, preset }) {
+export default function LinkedInCreatePostModal({ open, onClose, account, preset, onPublishSuccess }) {
   const { setToast } = useApp();
   const [content, setContent] = useState("");
   const [targetType, setTargetType] = useState("profile");
@@ -135,6 +135,7 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
         linkUrl: mediaType === "LINK" ? trimmedLink : "",
       });
       setToast({ message: "Post published successfully on LinkedIn." });
+      onPublishSuccess?.();
       setContent("");
       setLinkUrl("");
       setErrors({});
