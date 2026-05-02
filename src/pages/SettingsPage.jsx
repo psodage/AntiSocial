@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { AnimatePresence } from "framer-motion";
 import { AlertCircle, Link2 } from "lucide-react";
@@ -15,7 +16,8 @@ import SocialAccountCard from "../components/social/SocialAccountCard";
 import DisconnectConfirmationDialog from "../components/social/DisconnectConfirmationDialog";
 
 export default function SettingsPage() {
-  const { user, saveSettings, setToast, theme, toggleTheme } = useApp();
+  const navigate = useNavigate();
+  const { user, saveSettings, setToast, theme, toggleTheme, refreshConnectedAccounts } = useApp();
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [password, setPassword] = useState("");
@@ -232,7 +234,23 @@ export default function SettingsPage() {
             <p className="mt-1 text-2xl font-semibold text-sky-300">{summary.pendingPlatforms}</p>
           </div>
         </div>
-        <div className="mb-5 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3">
+        <button
+          type="button"
+          disabled={!instagramAccount.isConnected}
+          onClick={async () => {
+            try {
+              await refreshConnectedAccounts();
+            } catch {
+              /* navigate anyway; detail page uses context when available */
+            }
+            navigate("/connected-platforms/instagram");
+          }}
+          className={`mb-5 w-full rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-left transition ${
+            instagramAccount.isConnected
+              ? "cursor-pointer hover:border-fuchsia-400/50 hover:bg-fuchsia-500/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-fuchsia-400/60"
+              : "cursor-default opacity-90"
+          }`}
+        >
           <p className="text-xs uppercase tracking-wide text-fuchsia-200">Instagram</p>
           <p className="mt-1 text-sm text-white">
             {instagramAccount.isConnected
@@ -242,7 +260,10 @@ export default function SettingsPage() {
           <p className="mt-1 text-xs text-fuchsia-100/80">
             Instagram uses direct Instagram Login OAuth and is managed independently from Facebook connection.
           </p>
-        </div>
+          {instagramAccount.isConnected ? (
+            <p className="mt-2 text-[11px] font-medium text-fuchsia-200/90">View Instagram details</p>
+          ) : null}
+        </button>
 
         {loadingAccounts ? (
           <div className="grid gap-4 lg:grid-cols-2">
@@ -261,6 +282,14 @@ export default function SettingsPage() {
                 onConnect={() => connectPlatform(platform.key)}
                 onReconnect={() => reconnectPlatform(platform.key)}
                 onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                onOpenDetails={async () => {
+                  try {
+                    await refreshConnectedAccounts();
+                  } catch {
+                    /* continue */
+                  }
+                  navigate(`/connected-platforms/${platform.key}`);
+                }}
               />
             ))}
           </div>

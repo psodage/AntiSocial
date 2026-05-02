@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { SOCIAL_PLATFORM_CONFIGS, PLATFORM_CAPABILITY_MATRIX } from "../data/socialPlatforms";
 import { disconnectSocial, getSocialOAuthErrorMessage, manualConnectSocial, refreshSocial, startSocialConnect } from "../services/socialApi";
@@ -12,6 +13,7 @@ function sectionForPlatform(key) {
 }
 
 export default function ConnectedPlatformsPage() {
+  const navigate = useNavigate();
   const { setToast, refreshConnectedAccounts } = useApp();
   const [accounts, setAccounts] = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -147,6 +149,7 @@ export default function ConnectedPlatformsPage() {
                   onConnect={() => connectPlatform(platform.key)}
                   onReconnect={() => reconnectPlatform(platform.key)}
                   onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                  onOpenDetails={() => navigate(`/connected-platforms/${platform.key}`)}
                 />
               ))}
             </div>

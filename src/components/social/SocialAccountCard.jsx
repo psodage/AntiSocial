@@ -5,9 +5,10 @@ import TokenExpiryWarning from "./TokenExpiryWarning";
 import AccountSyncInfo from "./AccountSyncInfo";
 import { PLATFORM_CAPABILITY_MATRIX } from "../../data/socialPlatforms";
 
-export default function SocialAccountCard({ platformConfig, account, isProcessing, onConnect, onReconnect, onDisconnect }) {
+export default function SocialAccountCard({ platformConfig, account, isProcessing, onConnect, onReconnect, onDisconnect, onOpenDetails }) {
   const Icon = platformConfig.icon;
   const isConnected = !!account?.isConnected;
+  const openDetailsEnabled = isConnected && typeof onOpenDetails === "function";
   const displayName = isConnected ? account?.accountName || account?.username || "No Account linked" : "No Account linked";
   const firstPage = Array.isArray(account?.entities) ? account.entities.find((item) => item.entityType === "page") : null;
   const linkedInOrganizations =
@@ -27,66 +28,93 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
       className="rounded-2xl border border-slate-700/70 bg-slate-900/65 p-4 shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-blue-400/40"
       whileHover={{ scale: 1.01 }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-blue-500/10 p-2 text-blue-300">
-            {Icon ? <Icon size={18} /> : <span className="text-xs font-bold">X</span>}
+      <div
+        className={
+          openDetailsEnabled
+            ? "cursor-pointer rounded-xl outline-none ring-offset-slate-900/65 transition hover:bg-slate-800/40 focus-visible:ring-2 focus-visible:ring-blue-500/70"
+            : ""
+        }
+        role={openDetailsEnabled ? "button" : undefined}
+        tabIndex={openDetailsEnabled ? 0 : undefined}
+        aria-label={openDetailsEnabled ? `Open ${platformConfig.label} details` : undefined}
+        onClick={openDetailsEnabled ? () => onOpenDetails() : undefined}
+        onKeyDown={
+          openDetailsEnabled
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpenDetails();
+                }
+              }
+            : undefined
+        }
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-blue-500/10 p-2 text-blue-300">
+              {Icon ? <Icon size={18} /> : <span className="text-xs font-bold">X</span>}
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">{platformConfig.label}</p>
+              <p className="text-xs text-slate-400">{platformConfig.hint}</p>
+            </div>
           </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <ConnectionStatusBadge isConnected={isConnected} />
+            {openDetailsEnabled ? (
+              <span className="text-[11px] font-medium text-blue-300/90">View details</span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <img
+            src={account?.profileImage || "https://placehold.co/80x80/0f172a/e2e8f0?text=%40"}
+            alt={`${platformConfig.label} profile`}
+            className="h-11 w-11 rounded-full border border-slate-700 object-cover"
+          />
           <div>
-            <p className="text-sm font-semibold text-white">{platformConfig.label}</p>
-            <p className="text-xs text-slate-400">{platformConfig.hint}</p>
+            <p className="text-sm font-medium text-slate-100">{displayName}</p>
+            <p className="text-xs text-slate-400">{isConnected && account?.entityType ? `Type: ${account.entityType}` : "Account type unavailable"}</p>
           </div>
         </div>
-        <ConnectionStatusBadge isConnected={isConnected} />
-      </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <img
-          src={account?.profileImage || "https://placehold.co/80x80/0f172a/e2e8f0?text=%40"}
-          alt={`${platformConfig.label} profile`}
-          className="h-11 w-11 rounded-full border border-slate-700 object-cover"
-        />
-        <div>
-          <p className="text-sm font-medium text-slate-100">{displayName}</p>
-          <p className="text-xs text-slate-400">{isConnected && account?.entityType ? `Type: ${account.entityType}` : "Account type unavailable"}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {badges.map((badge) => (
+            <span
+              key={`${platformConfig.key}-${badge}`}
+              className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300"
+            >
+              {badge}
+            </span>
+          ))}
         </div>
-      </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {badges.map((badge) => (
-          <span
-            key={`${platformConfig.key}-${badge}`}
-            className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300"
-          >
-            {badge}
-          </span>
-        ))}
-      </div>
-
-      <div className="mt-4 space-y-1">
-        {isConnected && platformConfig.key === "facebook" ? (
-          <p className="text-xs text-slate-400">
-            {firstPage?.name ? `Page: ${firstPage.name}` : "Page: Not found"}
-            {" - "}
-            {linkedInstagram?.username || linkedInstagram?.name ? "Instagram linked" : "Instagram not linked"}
-          </p>
-        ) : null}
-        {isConnected && platformConfig.key === "instagram" ? (
-          <p className="text-xs text-slate-400">
-            {instagramUserId ? `Instagram User ID: ${instagramUserId}` : "Instagram user ID unavailable"}
-          </p>
-        ) : null}
-        {isConnected && platformConfig.key === "linkedin" ? (
-          <p className="text-xs text-slate-400">
-            {linkedInCurrentCompany?.accountName || linkedInCurrentCompany?.name
-              ? `Current company: ${linkedInCurrentCompany.accountName || linkedInCurrentCompany.name}`
-              : "Current company: Not found"}
-            {" - "}
-            {`Available companies: ${linkedInOrganizations.length}`}
-          </p>
-        ) : null}
-        <TokenExpiryWarning account={account} />
-        <AccountSyncInfo account={account} />
+        <div className="mt-4 space-y-1">
+          {isConnected && platformConfig.key === "facebook" ? (
+            <p className="text-xs text-slate-400">
+              {firstPage?.name ? `Page: ${firstPage.name}` : "Page: Not found"}
+              {" - "}
+              {linkedInstagram?.username || linkedInstagram?.name ? "Instagram linked" : "Instagram not linked"}
+            </p>
+          ) : null}
+          {isConnected && platformConfig.key === "instagram" ? (
+            <p className="text-xs text-slate-400">
+              {instagramUserId ? `Instagram User ID: ${instagramUserId}` : "Instagram user ID unavailable"}
+            </p>
+          ) : null}
+          {isConnected && platformConfig.key === "linkedin" ? (
+            <p className="text-xs text-slate-400">
+              {linkedInCurrentCompany?.accountName || linkedInCurrentCompany?.name
+                ? `Current company: ${linkedInCurrentCompany.accountName || linkedInCurrentCompany.name}`
+                : "Current company: Not found"}
+              {" - "}
+              {`Available companies: ${linkedInOrganizations.length}`}
+            </p>
+          ) : null}
+          <TokenExpiryWarning account={account} />
+          <AccountSyncInfo account={account} />
+        </div>
       </div>
 
       <div className="mt-4 flex gap-2">
