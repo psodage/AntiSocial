@@ -10,6 +10,7 @@ import LinkedInCreatePostModal from "../components/social/LinkedInCreatePostModa
 import ThreadsCreatePostModal from "../components/social/ThreadsCreatePostModal";
 import InstagramCreatePostModal from "../components/social/InstagramCreatePostModal";
 import YouTubeCreatePostModal from "../components/social/YouTubeCreatePostModal";
+import TelegramCreatePostModal from "../components/social/TelegramCreatePostModal";
 import GoogleBusinessCreatePostModal from "../components/social/GoogleBusinessCreatePostModal";
 import PlatformDetailTabBar from "../components/social/PlatformDetailTabBar";
 import PostHistoryPanel from "../components/social/PostHistoryPanel";
@@ -78,6 +79,12 @@ export default function ConnectedPlatformDetailPage() {
   const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
   const [linkedinPreset, setLinkedinPreset] = useState({ targetType: "profile", organizationId: null });
+  const [telegramModalOpen, setTelegramModalOpen] = useState(false);
+  const [telegramPresetChatId, setTelegramPresetChatId] = useState("");
+  const openTelegramComposer = (preset = "") => {
+    setTelegramPresetChatId(typeof preset === "string" ? preset : "");
+    setTelegramModalOpen(true);
+  };
   const [detailTab, setDetailTab] = useState("overview");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const bumpHistory = () => setHistoryRefreshKey((n) => n + 1);
@@ -229,7 +236,8 @@ export default function ConnectedPlatformDetailPage() {
             platformKey === "facebook" ||
             platformKey === "instagram" ||
             platformKey === "googleBusiness" ||
-            platformKey === "youtube" ? (
+            platformKey === "youtube" ||
+            platformKey === "telegram" ? (
               <button
                 type="button"
                 onClick={() => {
@@ -239,6 +247,7 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(null);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
+                  else if (platformKey === "telegram") openTelegramComposer("");
                   else if (platformKey === "threads") goToComposer(postingTargets.primaryCtaPath);
                   else navigate(postingTargets.primaryCtaPath);
                 }}
@@ -261,6 +270,7 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(card.googleBusinessPreset);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
+                  else if (platformKey === "telegram") openTelegramComposer(card.telegramChatId || "");
                   else if (platformKey === "threads") goToComposer(card.path);
                   else navigate(card.path);
                 }}
@@ -358,6 +368,18 @@ export default function ConnectedPlatformDetailPage() {
       ) : null}
       {platformKey === "youtube" ? (
         <YouTubeCreatePostModal open={youtubeModalOpen} onClose={() => setYoutubeModalOpen(false)} account={account} onPublishSuccess={bumpHistory} />
+      ) : null}
+      {platformKey === "telegram" ? (
+        <TelegramCreatePostModal
+          open={telegramModalOpen}
+          onClose={() => {
+            setTelegramModalOpen(false);
+            setTelegramPresetChatId("");
+          }}
+          account={account}
+          presetChatId={telegramPresetChatId}
+          onPublishSuccess={bumpHistory}
+        />
       ) : null}
     </section>
   );

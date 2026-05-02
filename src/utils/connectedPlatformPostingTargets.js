@@ -257,12 +257,36 @@ export function buildPostingTargetsConfig(platformKey, account) {
   }
 
   if (platformKey === "telegram") {
-    return single(
-      "Available posting targets",
-      "Bot connection for Telegram. Target chats or channels are configured per post where supported.",
-      "Telegram bot",
-      "account"
-    );
+    const targets = Array.isArray(account.metadata?.telegramTargets) ? account.metadata.telegramTargets : [];
+    /** @type {PostingTargetCard[]} */
+    const cards = targets
+      .filter((t) => t && t.chatId)
+      .map((t) => ({
+        key: `tg-${String(t.chatId)}`,
+        badge: t.chatType === "channel" ? "channel" : "account",
+        title: t.chatTitle || String(t.chatId),
+        sublabel: `${t.chatType === "supergroup" ? "Supergroup" : t.chatType === "group" ? "Group" : "Channel"} · ${t.chatId}`,
+        imageUrl: placeholderImage("telegram"),
+        path: `/connected-platforms/telegram`,
+        telegramChatId: String(t.chatId),
+      }));
+
+    const emptyBanner =
+      cards.length === 0
+        ? {
+            tone: "amber",
+            text: "No Telegram channel or group saved yet. Open Create post and add a target (chat id + title) before publishing.",
+          }
+        : null;
+
+    return {
+      title: "Telegram targets",
+      description:
+        "Post via your connected bot to channels and groups where the bot is a member (admin in channels). Save each chat under Create post.",
+      primaryCtaLabel: "Create post",
+      cards,
+      emptyBanner,
+    };
   }
 
   if (platformKey === "discord") {
