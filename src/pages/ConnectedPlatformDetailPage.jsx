@@ -11,6 +11,7 @@ import ThreadsCreatePostModal from "../components/social/ThreadsCreatePostModal"
 import InstagramCreatePostModal from "../components/social/InstagramCreatePostModal";
 import YouTubeCreatePostModal from "../components/social/YouTubeCreatePostModal";
 import TelegramCreatePostModal from "../components/social/TelegramCreatePostModal";
+import DiscordCreatePostModal from "../components/social/DiscordCreatePostModal";
 import GoogleBusinessCreatePostModal from "../components/social/GoogleBusinessCreatePostModal";
 import PlatformDetailTabBar from "../components/social/PlatformDetailTabBar";
 import PostHistoryPanel from "../components/social/PostHistoryPanel";
@@ -104,6 +105,13 @@ export default function ConnectedPlatformDetailPage() {
       preset && typeof preset === "object" && preset.accountId && preset.locationId ? preset : null
     );
     setGoogleBusinessModalOpen(true);
+  };
+
+  const [discordModalOpen, setDiscordModalOpen] = useState(false);
+  const [discordPreset, setDiscordPreset] = useState(null);
+  const openDiscordComposer = (preset) => {
+    setDiscordPreset(preset && typeof preset === "object" && preset.channelId != null ? preset : null);
+    setDiscordModalOpen(true);
   };
 
   const account = useMemo(
@@ -237,7 +245,8 @@ export default function ConnectedPlatformDetailPage() {
             platformKey === "instagram" ||
             platformKey === "googleBusiness" ||
             platformKey === "youtube" ||
-            platformKey === "telegram" ? (
+            platformKey === "telegram" ||
+            platformKey === "discord" ? (
               <button
                 type="button"
                 onClick={() => {
@@ -248,6 +257,7 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(null);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
                   else if (platformKey === "telegram") openTelegramComposer("");
+                  else if (platformKey === "discord") openDiscordComposer(null);
                   else if (platformKey === "threads") goToComposer(postingTargets.primaryCtaPath);
                   else navigate(postingTargets.primaryCtaPath);
                 }}
@@ -271,6 +281,7 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "googleBusiness") openGoogleBusinessComposer(card.googleBusinessPreset);
                   else if (platformKey === "youtube") setYoutubeModalOpen(true);
                   else if (platformKey === "telegram") openTelegramComposer(card.telegramChatId || "");
+                  else if (platformKey === "discord") openDiscordComposer(card.discordPreset || null);
                   else if (platformKey === "threads") goToComposer(card.path);
                   else navigate(card.path);
                 }}
@@ -378,6 +389,18 @@ export default function ConnectedPlatformDetailPage() {
           }}
           account={account}
           presetChatId={telegramPresetChatId}
+          onPublishSuccess={bumpHistory}
+        />
+      ) : null}
+      {platformKey === "discord" ? (
+        <DiscordCreatePostModal
+          open={discordModalOpen}
+          onClose={() => {
+            setDiscordModalOpen(false);
+            setDiscordPreset(null);
+          }}
+          account={account}
+          preset={discordPreset}
           onPublishSuccess={bumpHistory}
         />
       ) : null}

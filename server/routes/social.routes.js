@@ -5,6 +5,7 @@ import {
   connectMetaPlatform,
   connectSocialPlatform,
   createFacebookPost,
+  createDiscordPost,
   createGoogleBusinessPost,
   createLinkedInPost,
   createTelegramPost,
@@ -21,6 +22,7 @@ import {
   postToInstagram,
   refreshSocialPlatform,
   socialPlatformStatus,
+  updateDiscordTargets,
   updateTelegramTargets,
 } from "../controllers/social.controller.js";
 import {
@@ -60,6 +62,8 @@ export function createSocialRoutes(requireAuth) {
   router.post("/instagram/post", requireAuth, postToInstagram);
   router.put("/telegram/targets", requireAuth, updateTelegramTargets);
   router.post("/telegram/post", requireAuth, createTelegramPost);
+  router.put("/discord/targets", requireAuth, updateDiscordTargets);
+  router.post("/discord/post", requireAuth, createDiscordPost);
   router.get("/:platform/connect", requireAuth, connectSocialPlatform);
   router.post("/:platform/manual-connect", requireAuth, manualConnectSocialPlatform);
   router.get("/:platform/callback", oauthCallback);

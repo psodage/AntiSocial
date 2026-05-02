@@ -12,6 +12,7 @@ import { getSafeProviderDebugInfo, validateProviderConfig } from "../utils/provi
 import { getPlatformCapabilities } from "../config/platformCapabilities.js";
 import {
   disconnectAccount,
+  findDiscordTargetFromAccount,
   getAccountsForUser,
   getAccountStatus,
   getGoogleBusinessAccountForToken,
@@ -21,11 +22,21 @@ import {
   getStoredAccountForProvider,
   refreshAccountToken,
   refreshAccountTokenById,
+  replaceDiscordPostingTargets,
   replaceTelegramPostingTargets,
   resolveTelegramPostingTargetForUser,
   resolveYouTubeAccountForUpload,
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
+import {
+  buildDiscordMessagePayload,
+  fetchDiscordChannelWithBot,
+  fetchDiscordUserGuildIds,
+  isValidDiscordHttpUrl,
+  publishDiscordViaBot,
+  publishDiscordViaWebhook,
+  refreshDiscordAccessToken,
+} from "../services/social/discordPublish.service.js";
 import { publishTelegramPost } from "../services/social/telegramPublish.service.js";
 import SocialAccount from "../models/SocialAccount.js";
 import linkedinProvider from "../services/social/linkedin.service.js";
@@ -2221,6 +2232,298 @@ function parseTelegramPostBody(body) {
     buttonText,
     buttonUrl,
   };
+}
+
+const DISCORD_CONTENT_MAX = 2000;
+
+function parseDiscordPostBody(body) {
+  const guildId = body?.guildId != null ? String(body.guildId).trim() : "";
+  const channelId = body?.channelId != null ? String(body.channelId).trim() : "";
+  const mediaTypeRaw = typeof body?.mediaType === "string" ? body.mediaType.trim().toUpperCase() : "";
+
+  if (!channelId || !/^\d{17,24}$/.test(channelId)) {
+    const err = new Error("channelId is required and must be a valid Discord snowflake id.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (!["TEXT", "IMAGE", "EMBED", "LINK"].includes(mediaTypeRaw)) {
+    const err = new Error("mediaType is required and must be one of: TEXT, IMAGE, EMBED, LINK.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const strFields = ["message", "mediaUrl", "linkUrl", "embedTitle", "embedDescription", "embedUrl"];
+  for (const f of strFields) {
+    if (body[f] != null && typeof body[f] !== "string") {
+      const err = new Error(`${f} must be a string if provided.`);
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  let message = typeof body.message === "string" ? body.message.replace(/\u0000/g, "").trim() : "";
+  const mediaUrl = typeof body.mediaUrl === "string" ? body.mediaUrl.replace(/\u0000/g, "").trim() : "";
+  const linkUrl = typeof body.linkUrl === "string" ? body.linkUrl.replace(/\u0000/g, "").trim() : "";
+  const embedTitle = typeof body.embedTitle === "string" ? body.embedTitle.replace(/\u0000/g, "").trim() : "";
+  const embedDescription = typeof body.embedDescription === "string" ? body.embedDescription.replace(/\u0000/g, "").trim() : "";
+  const embedUrl = typeof body.embedUrl === "string" ? body.embedUrl.replace(/\u0000/g, "").trim() : "";
+
+  if (Object.prototype.hasOwnProperty.call(body, "message") && typeof body.message === "string" && body.message.length > 0 && !message.length) {
+    const err = new Error("message cannot be only spaces.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (message.length > DISCORD_CONTENT_MAX) {
+    const err = new Error(`message cannot exceed ${DISCORD_CONTENT_MAX} characters (Discord limit).`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (embedTitle.length > 256) {
+    const err = new Error("embedTitle cannot exceed 256 characters.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (embedDescription.length > 4096) {
+    const err = new Error("embedDescription cannot exceed 4096 characters.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaUrl.length > 2048 || linkUrl.length > 2048 || embedUrl.length > 2048) {
+    const err = new Error("URL fields are too long.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const globalPayload = Boolean(message || embedDescription || mediaUrl || linkUrl);
+  const embedPayload =
+    mediaTypeRaw === "EMBED" && (Boolean(embedTitle) || Boolean(embedDescription));
+  if (!globalPayload && !embedPayload) {
+    const err = new Error("Either message, embedDescription, mediaUrl, or linkUrl is required (for EMBED, title and/or description counts).");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaTypeRaw === "IMAGE") {
+    if (!mediaUrl || !isValidDiscordHttpUrl(mediaUrl)) {
+      const err = new Error("mediaUrl is required for IMAGE posts and must be a valid http(s) URL.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  if (mediaTypeRaw === "LINK") {
+    if (!linkUrl || !isValidDiscordHttpUrl(linkUrl)) {
+      const err = new Error("linkUrl is required for LINK posts and must be a valid http(s) URL.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  if (mediaTypeRaw === "EMBED") {
+    if (!embedTitle && !embedDescription) {
+      const err = new Error("EMBED posts require embedTitle and/or embedDescription.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  if (embedUrl && !isValidDiscordHttpUrl(embedUrl)) {
+    const err = new Error("embedUrl must be a valid http(s) URL.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  return {
+    guildId,
+    channelId,
+    mediaType: mediaTypeRaw,
+    message,
+    mediaUrl,
+    linkUrl,
+    embedTitle,
+    embedDescription,
+    embedUrl,
+  };
+}
+
+export async function updateDiscordTargets(req, res) {
+  try {
+    const userId = new ObjectId(req.auth.userId);
+    const account = await replaceDiscordPostingTargets(userId, req.body?.targets);
+    return successResponse(res, { account }, "Discord posting targets saved.");
+  } catch (error) {
+    const status = error?.status >= 400 && error?.status < 600 ? error.status : 400;
+    return errorResponse(res, error.message || "Unable to save Discord targets.", status, error.code || "validation_error");
+  }
+}
+
+export async function createDiscordPost(req, res) {
+  let parsed;
+  try {
+    parsed = parseDiscordPostBody(req.body);
+  } catch (validationError) {
+    return errorResponse(res, validationError.message, validationError.status || 400, validationError.code || "validation_error");
+  }
+
+  const userId = new ObjectId(req.auth.userId);
+  const reconnectMessage = "Discord is not connected. Connect Discord from Connected Platforms first.";
+
+  try {
+    let accountDoc = await getStoredAccountForProvider(userId, "discord");
+    if (!accountDoc || !accountDoc.isConnected) {
+      return errorResponse(res, reconnectMessage, 401, "not_connected");
+    }
+
+    const target = findDiscordTargetFromAccount(accountDoc, parsed.channelId, parsed.guildId);
+    if (!target) {
+      return errorResponse(
+        res,
+        "This channel is not in your saved Discord targets, or the server id does not match this bot target.",
+        403,
+        "discord_target_not_allowed"
+      );
+    }
+
+    const discordPayload = buildDiscordMessagePayload(parsed);
+    const connectionType = String(target.connectionType || "bot").toLowerCase();
+
+    let result;
+    if (connectionType === "webhook") {
+      const wh = decryptToken(target.webhookUrlEnc);
+      if (!wh) {
+        return errorResponse(res, "Webhook credentials are missing. Re-save this target with a valid webhook URL.", 400, "discord_webhook_missing");
+      }
+      try {
+        result = await publishDiscordViaWebhook(wh, discordPayload);
+      } catch (apiError) {
+        console.error("[discord:post:webhook:error]", { message: apiError?.message, code: apiError?.code });
+        const status = apiError?.status >= 400 && apiError?.status < 600 ? apiError.status : 502;
+        return errorResponse(res, apiError.message || "Could not publish to Discord webhook.", status, apiError.code || "discord_post_failed");
+      }
+    } else {
+      const botToken = process.env.DISCORD_BOT_TOKEN?.trim();
+      if (!botToken) {
+        return errorResponse(
+          res,
+          "Discord bot token is not configured on the server. Add DISCORD_BOT_TOKEN or use a webhook target.",
+          503,
+          "discord_bot_missing"
+        );
+      }
+
+      let userAccess = accountDoc.getDecryptedAccessToken?.();
+      if (!userAccess) {
+        return errorResponse(res, reconnectMessage, 401, "no_token");
+      }
+
+      if (accountDoc.expiresAt && new Date(accountDoc.expiresAt).getTime() <= Date.now()) {
+        const rt = accountDoc.getDecryptedRefreshToken?.();
+        if (!rt) {
+          return errorResponse(res, "Discord session expired. Please reconnect Discord.", 401, "discord_session_expired");
+        }
+        try {
+          const refreshed = await refreshDiscordAccessToken(rt);
+          await refreshAccountToken(userId, "discord", refreshed);
+          accountDoc = await getStoredAccountForProvider(userId, "discord");
+          userAccess = accountDoc?.getDecryptedAccessToken?.() || "";
+        } catch (refreshErr) {
+          const st = refreshErr?.status >= 400 && refreshErr?.status < 600 ? refreshErr.status : 401;
+          return errorResponse(
+            res,
+            refreshErr.message || "Discord session expired. Please reconnect Discord.",
+            st,
+            refreshErr.code || "discord_refresh_failed"
+          );
+        }
+      }
+
+      let guildIds;
+      try {
+        guildIds = await fetchDiscordUserGuildIds(userAccess);
+      } catch (ge) {
+        const st = ge?.status >= 400 && ge?.status < 600 ? ge.status : 403;
+        return errorResponse(res, ge.message || "Could not verify Discord server access.", st, ge.code || "discord_guilds_failed");
+      }
+
+      const gidStored = String(target.guildId || "").trim();
+      if (!guildIds.has(gidStored)) {
+        return errorResponse(
+          res,
+          "Your connected Discord user is not in that server (or the OAuth token cannot see it). Use the same Discord account that joined the server.",
+          403,
+          "discord_user_not_in_guild"
+        );
+      }
+
+      try {
+        const channelMeta = await fetchDiscordChannelWithBot(botToken, parsed.channelId);
+        if (channelMeta.guild_id !== gidStored) {
+          return errorResponse(res, "That channel does not belong to the selected server.", 403, "discord_channel_guild_mismatch");
+        }
+      } catch (ce) {
+        const st = ce?.status >= 400 && ce?.status < 600 ? ce.status : 403;
+        return errorResponse(res, ce.message || "Could not verify the channel with the bot.", st, ce.code || "discord_channel_failed");
+      }
+
+      try {
+        result = await publishDiscordViaBot(botToken, parsed.channelId, discordPayload);
+      } catch (apiError) {
+        console.error("[discord:post:bot:error]", { message: apiError?.message, code: apiError?.code });
+        const status = apiError?.status >= 400 && apiError?.status < 600 ? apiError.status : 502;
+        return errorResponse(res, apiError.message || "Could not publish to Discord.", status, apiError.code || "discord_post_failed");
+      }
+    }
+
+    const targetLabel = `${target.guildName || "Server"} — ${target.channelName || parsed.channelId}`;
+    const historyContent =
+      parsed.message || parsed.embedDescription || parsed.mediaUrl || parsed.linkUrl || "";
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "discord",
+      platformAccountId: String(accountDoc.platformUserId || ""),
+      platformAccountName: accountDoc.accountName || accountDoc.username || "Discord",
+      targetType: "server_channel",
+      targetId: parsed.channelId,
+      targetName: targetLabel.slice(0, 512),
+      content: historyContent.slice(0, 65000),
+      mediaType: parsed.mediaType,
+      mediaUrl: parsed.mediaUrl || "",
+      linkUrl: parsed.linkUrl || "",
+      externalPostId: result.messageId,
+      externalPostUrl: "",
+      apiSnapshot: result.safePayload,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Post published successfully on Discord",
+      postId: result.messageId,
+      data: {},
+      error: null,
+    });
+  } catch (error) {
+    console.error("[discord:post:error]", { message: error?.message });
+    return errorResponse(res, error.message || "Could not publish to Discord.", 500, error.code || "discord_post_error");
+  }
 }
 
 export async function updateTelegramTargets(req, res) {

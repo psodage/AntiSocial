@@ -2,6 +2,7 @@ const MEDIA_OPTIONS = [
   { value: "", label: "All media types" },
   { value: "TEXT", label: "TEXT" },
   { value: "IMAGE", label: "IMAGE" },
+  { value: "EMBED", label: "EMBED" },
   { value: "VIDEO", label: "VIDEO" },
   { value: "LINK", label: "LINK" },
   { value: "REEL", label: "REEL" },

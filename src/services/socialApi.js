@@ -337,6 +337,40 @@ export async function postToTelegram(payload) {
 }
 
 /**
+ * @param {{ guildId: string, channelId: string, connectionType: string, guildName?: string, channelName?: string, webhookUrl?: string }[]} targets
+ */
+export async function putDiscordTargets(targets) {
+  try {
+    const { data } = await socialClient.put("/api/social/discord/targets", { targets });
+    return data.data?.account;
+  } catch (error) {
+    throw parseApiError(error, "Unable to save Discord targets.");
+  }
+}
+
+/**
+ * @param {{
+ *   guildId: string,
+ *   channelId: string,
+ *   message: string,
+ *   mediaType: 'TEXT' | 'IMAGE' | 'EMBED' | 'LINK',
+ *   mediaUrl?: string,
+ *   linkUrl?: string,
+ *   embedTitle?: string,
+ *   embedDescription?: string,
+ *   embedUrl?: string,
+ * }} payload
+ */
+export async function postToDiscord(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/discord/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish to Discord.");
+  }
+}
+
+/**
  * @param {{
  *   locationId: string,
  *   accountId: string,

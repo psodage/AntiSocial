@@ -2,16 +2,35 @@ import SocialAccount from "../../models/SocialAccount.js";
 import { SOCIAL_PLATFORMS } from "./providerRegistry.js";
 import { getPlatformCapabilities } from "../../config/platformCapabilities.js";
 import { encryptToken } from "../../utils/crypto.js";
+import { parseDiscordWebhookUrl } from "./discordPublish.service.js";
 
 function normalizePlatform(platform) {
   if (platform === "google") return "youtube";
   return platform;
 }
 
+/**
+ * Strip webhook secrets before returning Discord metadata to the client.
+ * @param {Record<string, unknown>} metadata
+ */
+function sanitizeDiscordClientMetadata(metadata) {
+  const m = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { ...metadata } : {};
+  if (Array.isArray(m.discordTargets)) {
+    m.discordTargets = m.discordTargets.map((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+      const { webhookUrlEnc: _w, ...pub } = row;
+      return pub;
+    });
+  }
+  return m;
+}
+
 function mapAccount(account) {
   const plain = account?.toObject?.({ depopulate: true }) || account;
   const expiresAt = plain.expiresAt ? new Date(plain.expiresAt) : null;
   const isExpired = !!expiresAt && expiresAt.getTime() <= Date.now();
+  const rawMeta = plain.metadata || {};
+  const metadata = plain.platform === "discord" ? sanitizeDiscordClientMetadata(rawMeta) : rawMeta;
   return {
     id: plain._id,
     platform: plain.platform,
@@ -31,7 +50,7 @@ function mapAccount(account) {
     isPrimary: Boolean(plain.isPrimary),
     parentAccountId: plain.parentAccountId || null,
     connectedByUserId: plain.connectedByUserId || plain.userId,
-    metadata: plain.metadata || {},
+    metadata,
     lastSyncedAt: plain.lastSyncedAt,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
@@ -408,4 +427,152 @@ export async function resolveTelegramPostingTargetForUser(userId, chatIdRaw) {
     chatTitle: String(hit.chatTitle || "").trim(),
     chatType: String(hit.chatType || "").trim().toLowerCase(),
   };
+}
+
+const DISCORD_MAX_TARGETS = 40;
+const DISCORD_LABEL_MAX = 128;
+
+function isDiscordSnowflake(raw) {
+  const s = raw != null ? String(raw).trim() : "";
+  return /^\d{17,24}$/.test(s);
+}
+
+function normalizeDiscordLabel(raw) {
+  const s = raw != null ? String(raw).trim().slice(0, DISCORD_LABEL_MAX) : "";
+  if (/[\u0000-\u001f<>]/.test(s)) return "";
+  return s;
+}
+
+/**
+ * @param {import("mongoose").HydratedDocument<unknown> | null | undefined} accountDoc
+ * @param {string} channelIdRaw
+ * @param {string} guildIdRaw
+ * @returns {object | null}
+ */
+export function findDiscordTargetFromAccount(accountDoc, channelIdRaw, guildIdRaw) {
+  const targets = accountDoc?.metadata?.discordTargets;
+  if (!Array.isArray(targets)) return null;
+  const cid = String(channelIdRaw || "").trim();
+  if (!cid) return null;
+  const hit = targets.find((t) => t && String(t.channelId || "").trim() === cid);
+  if (!hit) return null;
+  const mode = String(hit.connectionType || "bot").toLowerCase();
+  if (mode === "bot") {
+    const gidReq = String(guildIdRaw || "").trim();
+    const gidStored = String(hit.guildId || "").trim();
+    if (!isDiscordSnowflake(gidReq) || gidReq !== gidStored) return null;
+  }
+  return hit;
+}
+
+/**
+ * @param {import("mongodb").ObjectId} userId
+ * @param {unknown} bodyTargets
+ */
+export async function replaceDiscordPostingTargets(userId, bodyTargets) {
+  if (!Array.isArray(bodyTargets)) {
+    const err = new Error("targets must be an array.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (bodyTargets.length > DISCORD_MAX_TARGETS) {
+    const err = new Error(`You can save at most ${DISCORD_MAX_TARGETS} Discord targets.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  /** @type {object[]} */
+  const cleaned = [];
+  const seen = new Set();
+
+  for (const row of bodyTargets) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    if ("__proto__" in row || "constructor" in row) {
+      const err = new Error("Invalid target entry.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+
+    const channelId = String(row.channelId || "").trim();
+    const guildId = String(row.guildId || "").trim();
+    const guildName = normalizeDiscordLabel(row.guildName);
+    const channelName = normalizeDiscordLabel(row.channelName);
+    const connectionType = String(row.connectionType || "bot").trim().toLowerCase();
+
+    if (!isDiscordSnowflake(channelId)) {
+      const err = new Error("Each target needs a valid Discord channel id (numeric snowflake).");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!channelName) {
+      const err = new Error("Each target needs a channel name.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!["bot", "webhook"].includes(connectionType)) {
+      const err = new Error("connectionType must be bot or webhook.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+
+    let webhookUrlEnc = null;
+    if (connectionType === "bot") {
+      if (!isDiscordSnowflake(guildId)) {
+        const err = new Error("Bot targets require a valid server (guild) id.");
+        err.status = 400;
+        err.code = "validation_error";
+        throw err;
+      }
+      if (!guildName) {
+        const err = new Error("Bot targets require a server name.");
+        err.status = 400;
+        err.code = "validation_error";
+        throw err;
+      }
+    } else {
+      const wh = row.webhookUrl != null ? String(row.webhookUrl).trim() : "";
+      const parsed = parseDiscordWebhookUrl(wh);
+      if (!parsed) {
+        const err = new Error("Webhook targets require a valid https Discord webhook URL.");
+        err.status = 400;
+        err.code = "validation_error";
+        throw err;
+      }
+      webhookUrlEnc = encryptToken(parsed.executeUrl);
+    }
+
+    const key = `${connectionType}:${guildId || "_"}:${channelId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    /** @type {Record<string, unknown>} */
+    const entry = {
+      guildId: connectionType === "bot" ? guildId : guildId && isDiscordSnowflake(guildId) ? guildId : "",
+      guildName: guildName || (connectionType === "webhook" ? "Discord server" : guildName),
+      channelId,
+      channelName,
+      connectionType,
+    };
+    if (webhookUrlEnc) entry.webhookUrlEnc = webhookUrlEnc;
+    cleaned.push(entry);
+  }
+
+  const account = await SocialAccount.findOne({ userId, platform: "discord" });
+  if (!account || !account.isConnected) {
+    const err = new Error("Discord is not connected.");
+    err.status = 400;
+    err.code = "not_connected";
+    throw err;
+  }
+
+  account.metadata = { ...(account.metadata || {}), discordTargets: cleaned };
+  account.lastSyncedAt = new Date();
+  await account.save();
+  return mapAccount(account);
 }

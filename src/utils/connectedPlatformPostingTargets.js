@@ -12,6 +12,7 @@
  * @property {{ targetType: 'profile' | 'organization', organizationId: string | null } | null} [linkedinAction]
  * @property {{ accountId: string, locationId: string } | null} [googleBusinessPreset]
  * @property {string} [telegramChatId]
+ * @property {{ guildId: string, channelId: string } | null} [discordPreset]
  */
 
 /**
@@ -290,12 +291,36 @@ export function buildPostingTargetsConfig(platformKey, account) {
   }
 
   if (platformKey === "discord") {
-    return single(
-      "Available posting targets",
-      "Your connected Discord user. Channels and webhooks are chosen per post where supported.",
-      "Discord account",
-      "account"
-    );
+    const rawTargets = Array.isArray(account.metadata?.discordTargets) ? account.metadata.discordTargets : [];
+    /** @type {PostingTargetCard[]} */
+    const cards = rawTargets
+      .filter((t) => t && t.channelId)
+      .map((t) => ({
+        key: `dc-${String(t.guildId || "wh")}-${String(t.channelId)}-${String(t.connectionType || "bot")}`,
+        badge: "channel",
+        title: `${t.guildName || "Server"} → ${t.channelName ? `#${t.channelName}` : String(t.channelId)}`,
+        sublabel: `${String(t.connectionType).toLowerCase() === "webhook" ? "Webhook" : "Bot"} · channel ${t.channelId}`,
+        imageUrl: placeholderImage("discord"),
+        path: `/connected-platforms/discord`,
+        discordPreset: { guildId: String(t.guildId || "").trim(), channelId: String(t.channelId) },
+      }));
+
+    const emptyBanner =
+      cards.length === 0
+        ? {
+            tone: "amber",
+            text: "No Discord channel saved yet. Open Create post and add a bot or webhook target before publishing.",
+          }
+        : null;
+
+    return {
+      title: "Discord channels",
+      description:
+        "Post via your server bot (DISCORD_BOT_TOKEN) or a channel webhook. Save each target under Create post — webhook URLs are stored only on the server.",
+      primaryCtaLabel: "Create post",
+      cards,
+      emptyBanner,
+    };
   }
 
   if (platformKey === "googleBusiness") {
