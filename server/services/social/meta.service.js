@@ -7,9 +7,13 @@ const META_GRAPH_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
 export const META_SCOPE_SETS = {
   initialLogin: ["public_profile", "email"],
-  pages: ["pages_show_list"],
-  /** Required for publishing as a Page via /{page-id}/feed, photos, videos */
-  pagePosting: ["pages_read_engagement", "pages_manage_posts"],
+  /**
+   * Page-related scopes are omitted here by default: many Meta apps return “Invalid Scopes” until Pages /
+   * Facebook Login for Business are configured and permissions are approved.
+   * Append Page scopes via `FACEBOOK_LOGIN_EXTRA_SCOPES` in `facebook.service.js` when your app supports them.
+   */
+  pages: [],
+  pagePosting: [],
   instagramBasic: ["instagram_basic"],
   publishing: ["instagram_content_publish"],
   insights: ["instagram_manage_insights"],

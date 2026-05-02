@@ -278,10 +278,7 @@ export async function connectMetaPlatform(req, res) {
       hasMetaAppId: Boolean(process.env.META_APP_ID),
       redirectUri: getAppConfig().metaRedirectUri || "missing",
       authMode: "classic_scope",
-      scopes:
-        requestedMetaPlatform === "facebook"
-          ? "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts"
-          : "public_profile,email",
+      scopes: Array.isArray(provider.defaultScopes) ? provider.defaultScopes.join(",") : "",
     });
     return successResponse(res, { url: authUrl, state }, "Meta OAuth URL generated.");
   } catch (error) {
@@ -381,11 +378,12 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
       try {
         pages = await provider.getPages(tokenData.accessToken);
       } catch (pagesError) {
-        if (pagesError?.code === "meta_pages_permission_missing") {
-          pageDiscoveryErrorCode = pagesError.code;
-        } else {
-          throw pagesError;
-        }
+        pageDiscoveryErrorCode = pagesError?.code || "meta_pages_unavailable";
+        console.warn("[oauth:facebook:pages-discovery]", {
+          userId: decodedState.userId,
+          message: pagesError?.message,
+          code: pagesError?.code,
+        });
       }
 
       const linkedInstagram = pages.length ? await provider.getLinkedInstagramAccount(tokenData.accessToken, pages) : null;

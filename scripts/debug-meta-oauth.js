@@ -101,18 +101,22 @@ async function run() {
     threads: `${appBaseUrl}/api/social/threads/callback`,
   };
 
+  const fbExtras = (process.env.FACEBOOK_LOGIN_EXTRA_SCOPES || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const oauthUrls = [
     buildOAuthUrl({
       platform: "facebook",
       clientId: metaAppId,
       redirectUri: redirects.facebook,
-      scopes: ["pages_show_list", "pages_manage_posts", "pages_read_engagement"],
+      scopes: ["public_profile", "email", ...fbExtras],
     }),
     buildOAuthUrl({
       platform: "instagram",
       clientId: metaAppId,
       redirectUri: redirects.instagram,
-      scopes: ["instagram_basic", "pages_show_list", "instagram_content_publish", "instagram_manage_insights"],
+      scopes: ["instagram_business_basic", "instagram_business_content_publish", "instagram_manage_insights"],
     }),
     buildOAuthUrl({
       platform: "threads",

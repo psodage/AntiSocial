@@ -1,11 +1,17 @@
 import { createMetaOAuthService, META_SCOPE_SETS } from "./meta.service.js";
 
-// `pages_show_list` is required for Graph `GET /me/accounts` (Pages list / Instagram linkage metadata).
-// `pages_manage_posts` + `pages_read_engagement` keep Page tokens available for Meta-linked features; Facebook posts use the user token (`/me/*`), not Page endpoints.
+function parseCommaSeparatedScopes(raw) {
+  return String(raw || "")
+    .split(/[,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Default: scopes every Meta app accepts. Page scopes often trigger “Invalid Scopes” until enabled in App Dashboard.
+// Optional: FACEBOOK_LOGIN_EXTRA_SCOPES=pages_show_list,pages_read_engagement,pages_manage_posts (comma-separated)
 const facebookLoginScopes = [
   ...META_SCOPE_SETS.initialLogin,
-  ...META_SCOPE_SETS.pages,
-  ...META_SCOPE_SETS.pagePosting,
+  ...parseCommaSeparatedScopes(process.env.FACEBOOK_LOGIN_EXTRA_SCOPES),
 ];
 
 const facebookService = createMetaOAuthService({
