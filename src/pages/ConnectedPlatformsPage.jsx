@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
-import { SOCIAL_PLATFORM_CONFIGS, PLATFORM_CAPABILITY_MATRIX } from "../data/socialPlatforms";
+import {
+  SOCIAL_PLATFORM_CONFIGS,
+  PLATFORM_CAPABILITY_MATRIX,
+  isPlatformConnectTemporarilyDisabled,
+} from "../data/socialPlatforms";
 import { disconnectSocial, getSocialOAuthErrorMessage, manualConnectSocial, refreshSocial, startSocialConnect } from "../services/socialApi";
 import SocialAccountCard from "../components/social/SocialAccountCard";
 import DisconnectConfirmationDialog from "../components/social/DisconnectConfirmationDialog";
 import { useApp } from "../context/AppContext";
-
-function sectionForPlatform(key) {
-  const level = PLATFORM_CAPABILITY_MATRIX[key]?.supportLevel;
-  return level === "full" ? "Fully Supported" : "Limited / Bot-Based";
-}
 
 export default function ConnectedPlatformsPage() {
   const navigate = useNavigate();
@@ -25,17 +24,15 @@ export default function ConnectedPlatformsPage() {
     [accounts]
   );
 
-  const groupedPlatforms = useMemo(
-    () =>
-      SOCIAL_PLATFORM_CONFIGS.reduce(
-        (acc, platform) => {
-          acc[sectionForPlatform(platform.key)].push(platform);
-          return acc;
-        },
-        { "Fully Supported": [], "Limited / Bot-Based": [] }
-      ),
-    []
-  );
+  const { availablePlatforms, temporarilyDisabledPlatforms } = useMemo(() => {
+    const available = [];
+    const disabled = [];
+    for (const platform of SOCIAL_PLATFORM_CONFIGS) {
+      if (isPlatformConnectTemporarilyDisabled(platform.key)) disabled.push(platform);
+      else available.push(platform);
+    }
+    return { availablePlatforms: available, temporarilyDisabledPlatforms: disabled };
+  }, []);
 
   async function loadAccounts() {
     setLoadingAccounts(true);
@@ -53,6 +50,10 @@ export default function ConnectedPlatformsPage() {
   }, []);
 
   const connectPlatform = async (platform) => {
+    if (isPlatformConnectTemporarilyDisabled(platform)) {
+      setToast({ message: "Connecting to this platform is temporarily unavailable.", error: true });
+      return;
+    }
     const capability = PLATFORM_CAPABILITY_MATRIX[platform];
     setProcessingPlatform(platform);
     try {
@@ -72,6 +73,10 @@ export default function ConnectedPlatformsPage() {
   };
 
   const reconnectPlatform = async (platform) => {
+    if (isPlatformConnectTemporarilyDisabled(platform)) {
+      setToast({ message: "Reconnect is temporarily unavailable for this platform.", error: true });
+      return;
+    }
     setProcessingPlatform(platform);
     try {
       const result = await refreshSocial(platform);
@@ -128,34 +133,60 @@ export default function ConnectedPlatformsPage() {
         <p className="mt-1 text-sm text-slate-300">Official API integrations only. Restricted capabilities are clearly marked.</p>
       </article>
 
-      {Object.entries(groupedPlatforms).map(([title, items]) => (
-        <article key={title} className="rounded-2xl border border-slate-700/70 bg-slate-900/70 p-5">
-          <h2 className="text-sm font-semibold text-white">{title}</h2>
-          <p className="mb-4 mt-1 text-xs text-slate-400">Includes setup permissions, limitations, and per-platform capabilities.</p>
-          {loadingAccounts ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {Array.from({ length: 4 }).map((_, idx) => (
-                <div key={idx} className="h-48 animate-pulse rounded-2xl border border-slate-700 bg-slate-900/60" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {items.map((platform) => (
-                <SocialAccountCard
-                  key={platform.key}
-                  platformConfig={platform}
-                  account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
-                  isProcessing={processingPlatform === platform.key}
-                  onConnect={() => connectPlatform(platform.key)}
-                  onReconnect={() => reconnectPlatform(platform.key)}
-                  onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
-                  onOpenDetails={() => navigate(`/connected-platforms/${platform.key}`)}
-                />
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
+      <article className="rounded-2xl border border-slate-700/70 bg-slate-900/70 p-5">
+        <h2 className="text-sm font-semibold text-white">Available to connect</h2>
+        <p className="mb-4 mt-1 text-xs text-slate-400">Platforms you can link now. Capabilities and OAuth vs bot setup vary per channel.</p>
+        {loadingAccounts ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div key={idx} className="h-48 animate-pulse rounded-2xl border border-slate-700 bg-slate-900/60" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {availablePlatforms.map((platform) => (
+              <SocialAccountCard
+                key={platform.key}
+                platformConfig={platform}
+                account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
+                isProcessing={processingPlatform === platform.key}
+                onConnect={() => connectPlatform(platform.key)}
+                onReconnect={() => reconnectPlatform(platform.key)}
+                onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                onOpenDetails={() => navigate(`/connected-platforms/${platform.key}`)}
+              />
+            ))}
+          </div>
+        )}
+      </article>
+
+      <article className="rounded-2xl border border-slate-600/50 bg-slate-900/50 p-5">
+        <h2 className="text-sm font-semibold text-slate-200">Temporarily unavailable</h2>
+        <p className="mb-4 mt-1 text-xs text-slate-500">New connections and reconnect are disabled here for now. Existing links stay manageable below.</p>
+        {loadingAccounts ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, idx) => (
+              <div key={idx} className="h-48 animate-pulse rounded-2xl border border-slate-700 bg-slate-900/60" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {temporarilyDisabledPlatforms.map((platform) => (
+              <SocialAccountCard
+                key={platform.key}
+                platformConfig={platform}
+                account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
+                isProcessing={processingPlatform === platform.key}
+                connectTemporarilyDisabled
+                onConnect={() => connectPlatform(platform.key)}
+                onReconnect={() => reconnectPlatform(platform.key)}
+                onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                onOpenDetails={() => navigate(`/connected-platforms/${platform.key}`)}
+              />
+            ))}
+          </div>
+        )}
+      </article>
 
       {!loadingAccounts && !accounts.some((item) => item.isConnected) ? (
         <div className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-900/70 p-4">

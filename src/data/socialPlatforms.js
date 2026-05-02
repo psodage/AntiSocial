@@ -14,6 +14,13 @@ export const SOCIAL_PLATFORM_CONFIGS = [
   { key: "googleBusiness", label: "Google Business Profile", icon: Building2, hint: "Business profile location updates" },
 ];
 
+/** New connections and reconnect OAuth are hidden/disabled in the UI until re-enabled. */
+export const TEMPORARILY_DISABLED_CONNECT_PLATFORM_KEYS = new Set(["pinterest", "reddit", "discord"]);
+
+export function isPlatformConnectTemporarilyDisabled(platformKey) {
+  return TEMPORARILY_DISABLED_CONNECT_PLATFORM_KEYS.has(platformKey);
+}
+
 export const PLATFORM_CAPABILITY_MATRIX = {
   facebook: { badges: ["Posting", "Analytics"], supportLevel: "full", oauth: true },
   instagram: { badges: ["Posting", "Analytics"], supportLevel: "full", oauth: true },

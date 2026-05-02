@@ -5,7 +5,16 @@ import TokenExpiryWarning from "./TokenExpiryWarning";
 import AccountSyncInfo from "./AccountSyncInfo";
 import { PLATFORM_CAPABILITY_MATRIX } from "../../data/socialPlatforms";
 
-export default function SocialAccountCard({ platformConfig, account, isProcessing, onConnect, onReconnect, onDisconnect, onOpenDetails }) {
+export default function SocialAccountCard({
+  platformConfig,
+  account,
+  isProcessing,
+  onConnect,
+  onReconnect,
+  onDisconnect,
+  onOpenDetails,
+  connectTemporarilyDisabled = false,
+}) {
   const Icon = platformConfig.icon;
   const isConnected = !!account?.isConnected;
   const openDetailsEnabled = isConnected && typeof onOpenDetails === "function";
@@ -124,6 +133,7 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
           onConnect={onConnect}
           onReconnect={onReconnect}
           connectLabel={platformConfig.key === "instagram" ? "Connect Instagram" : "Connect"}
+          connectDisabled={connectTemporarilyDisabled}
         />
         <button
           onClick={onDisconnect}
@@ -133,6 +143,9 @@ export default function SocialAccountCard({ platformConfig, account, isProcessin
           Disconnect
         </button>
       </div>
+      {connectTemporarilyDisabled ? (
+        <p className="mt-2 text-xs text-slate-400">Connecting is temporarily unavailable for this platform.</p>
+      ) : null}
       {!oauthSupported ? <p className="mt-2 text-xs text-amber-300">Bot/manual setup required. OAuth is not available for this platform.</p> : null}
     </motion.article>
   );

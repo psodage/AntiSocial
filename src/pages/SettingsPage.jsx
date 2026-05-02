@@ -3,7 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { AnimatePresence } from "framer-motion";
 import { AlertCircle, Link2 } from "lucide-react";
-import { PLATFORM_CAPABILITY_MATRIX, SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
+import {
+  PLATFORM_CAPABILITY_MATRIX,
+  SOCIAL_PLATFORM_CONFIGS,
+  isPlatformConnectTemporarilyDisabled,
+} from "../data/socialPlatforms";
 import {
   disconnectSocial,
   getSocialAccounts,
@@ -37,10 +41,23 @@ export default function SettingsPage() {
     [accounts]
   );
 
+  const { availablePlatforms, temporarilyDisabledPlatforms } = useMemo(() => {
+    const available = [];
+    const disabled = [];
+    for (const platform of SOCIAL_PLATFORM_CONFIGS) {
+      if (isPlatformConnectTemporarilyDisabled(platform.key)) disabled.push(platform);
+      else available.push(platform);
+    }
+    return { availablePlatforms: available, temporarilyDisabledPlatforms: disabled };
+  }, []);
+
   const summary = useMemo(() => {
     const connected = accounts.filter((item) => item.isConnected).length;
     const reconnectRequired = accounts.filter((item) => item.isConnected && item.isTokenExpired).length;
-    const pendingPlatforms = SOCIAL_PLATFORM_CONFIGS.filter((platform) => !accountsByPlatform[platform.key]?.isConnected).length;
+    const pendingPlatforms = SOCIAL_PLATFORM_CONFIGS.filter(
+      (platform) =>
+        !isPlatformConnectTemporarilyDisabled(platform.key) && !accountsByPlatform[platform.key]?.isConnected
+    ).length;
     return {
       totalConnected: connected,
       activePlatforms: connected,
@@ -113,6 +130,10 @@ export default function SettingsPage() {
   };
 
   const connectPlatform = async (platform) => {
+    if (isPlatformConnectTemporarilyDisabled(platform)) {
+      setToast({ message: "Connecting to this platform is temporarily unavailable.", error: true });
+      return;
+    }
     setProcessingPlatform(platform);
     try {
       if (PLATFORM_CAPABILITY_MATRIX[platform]?.oauth === false) {
@@ -135,6 +156,10 @@ export default function SettingsPage() {
   };
 
   const reconnectPlatform = async (platform) => {
+    if (isPlatformConnectTemporarilyDisabled(platform)) {
+      setToast({ message: "Reconnect is temporarily unavailable for this platform.", error: true });
+      return;
+    }
     setProcessingPlatform(platform);
     try {
       const result = await refreshSocial(platform);
@@ -272,26 +297,60 @@ export default function SettingsPage() {
             ))}
           </div>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {SOCIAL_PLATFORM_CONFIGS.map((platform) => (
-              <SocialAccountCard
-                key={platform.key}
-                platformConfig={platform}
-                account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
-                isProcessing={processingPlatform === platform.key}
-                onConnect={() => connectPlatform(platform.key)}
-                onReconnect={() => reconnectPlatform(platform.key)}
-                onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
-                onOpenDetails={async () => {
-                  try {
-                    await refreshConnectedAccounts();
-                  } catch {
-                    /* continue */
-                  }
-                  navigate(`/connected-platforms/${platform.key}`);
-                }}
-              />
-            ))}
+          <div className="space-y-6">
+            <article className="rounded-xl border border-slate-700/70 bg-slate-900/70 p-4">
+              <h3 className="text-sm font-semibold text-white">Available to connect</h3>
+              <p className="mb-4 mt-1 text-xs text-slate-400">Platforms you can link now.</p>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {availablePlatforms.map((platform) => (
+                  <SocialAccountCard
+                    key={platform.key}
+                    platformConfig={platform}
+                    account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
+                    isProcessing={processingPlatform === platform.key}
+                    onConnect={() => connectPlatform(platform.key)}
+                    onReconnect={() => reconnectPlatform(platform.key)}
+                    onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                    onOpenDetails={async () => {
+                      try {
+                        await refreshConnectedAccounts();
+                      } catch {
+                        /* continue */
+                      }
+                      navigate(`/connected-platforms/${platform.key}`);
+                    }}
+                  />
+                ))}
+              </div>
+            </article>
+            <article className="rounded-xl border border-slate-600/50 bg-slate-900/50 p-4">
+              <h3 className="text-sm font-semibold text-slate-200">Temporarily unavailable</h3>
+              <p className="mb-4 mt-1 text-xs text-slate-500">
+                New connections and reconnect are disabled for these platforms for now. Existing links stay manageable below.
+              </p>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {temporarilyDisabledPlatforms.map((platform) => (
+                  <SocialAccountCard
+                    key={platform.key}
+                    platformConfig={platform}
+                    account={accountsByPlatform[platform.key] || { platform: platform.key, isConnected: false }}
+                    isProcessing={processingPlatform === platform.key}
+                    connectTemporarilyDisabled
+                    onConnect={() => connectPlatform(platform.key)}
+                    onReconnect={() => reconnectPlatform(platform.key)}
+                    onDisconnect={() => setDisconnectDialog({ open: true, platform: platform.key })}
+                    onOpenDetails={async () => {
+                      try {
+                        await refreshConnectedAccounts();
+                      } catch {
+                        /* continue */
+                      }
+                      navigate(`/connected-platforms/${platform.key}`);
+                    }}
+                  />
+                ))}
+              </div>
+            </article>
           </div>
         )}
 

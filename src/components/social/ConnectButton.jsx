@@ -1,9 +1,18 @@
-export default function ConnectButton({ isConnected, isProcessing, onConnect, onReconnect, connectLabel = "Connect" }) {
+export default function ConnectButton({
+  isConnected,
+  isProcessing,
+  onConnect,
+  onReconnect,
+  connectLabel = "Connect",
+  connectDisabled = false,
+}) {
+  const blocked = connectDisabled || isProcessing;
+
   if (!isConnected) {
     return (
       <button
         onClick={onConnect}
-        disabled={isProcessing}
+        disabled={blocked}
         className="rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isProcessing ? "Connecting..." : connectLabel}
@@ -14,7 +23,7 @@ export default function ConnectButton({ isConnected, isProcessing, onConnect, on
   return (
     <button
       onClick={onReconnect}
-      disabled={isProcessing}
+      disabled={blocked}
       className="rounded-md border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-slate-700/70 disabled:cursor-not-allowed disabled:opacity-60"
     >
       {isProcessing ? "Processing..." : "Reconnect"}
