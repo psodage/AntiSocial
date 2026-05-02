@@ -2,7 +2,15 @@ import axios from "axios";
 import { createOAuthService } from "./sharedOAuth.js";
 import { resolveProviderRedirectUri } from "../../utils/redirectUri.util.js";
 
-const defaultScopes = ["r_liteprofile", "w_member_social", "r_organization_social", "w_organization_social"];
+// `r_organization_admin` / org posting scopes are required for company page ACLs + posting.
+// See: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role
+const defaultScopes = [
+  "r_liteprofile",
+  "w_member_social",
+  "r_organization_social",
+  "w_organization_social",
+  "r_organization_admin",
+];
 const configuredScopes = process.env.LINKEDIN_SCOPES
   ? process.env.LINKEDIN_SCOPES.split(/[,\s]+/).filter(Boolean)
   : defaultScopes;
@@ -12,17 +20,37 @@ const linkedinProfileUrl = hasOpenIdScopes ? "https://api.linkedin.com/v2/userin
 function extractOrganizationId(value) {
   if (!value) return "";
   if (typeof value === "string") {
-    const match = value.match(/organization:(\d+)/i);
+    let match = value.match(/organization:(\d+)/i);
+    if (match?.[1]) return match[1];
+    match = value.match(/organizationBrand:(\d+)/i);
     return match?.[1] || "";
   }
   if (typeof value === "object") {
-    const urn = value.urn || value.id || value.organizationalTarget || value.organizationalTargetUrn;
+    const urn =
+      value.urn ||
+      value.id ||
+      value.organizationalTarget ||
+      value.organizationalTargetUrn ||
+      value.organizationTarget ||
+      value.organization;
     if (typeof urn === "string") {
-      const match = urn.match(/organization:(\d+)/i);
-      return match?.[1] || "";
+      return extractOrganizationId(urn);
     }
   }
   return "";
+}
+
+/** ACL finder returns different field names depending on API version. */
+function organizationIdFromAclElement(item) {
+  if (!item || typeof item !== "object") return "";
+  const direct = extractOrganizationId(
+    item.organizationalTarget ||
+      item.organizationalTargetUrn ||
+      item.organizationTarget ||
+      item.organization
+  );
+  if (direct) return direct;
+  return extractOrganizationId(item);
 }
 
 function pickLinkedInOrgLogo(org) {
@@ -54,6 +82,8 @@ const linkedinService = createOAuthService({
   scopes: configuredScopes,
 });
 
+const ACL_ROLES_FOR_PAGES = ["ADMINISTRATOR", "CONTENT_ADMINISTRATOR", "CURATOR", "ANALYST"];
+
 linkedinService.getManagedEntities = async function getManagedEntities(accessToken) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
@@ -62,15 +92,47 @@ linkedinService.getManagedEntities = async function getManagedEntities(accessTok
 
   let acl;
   try {
-    const response = await axios.get("https://api.linkedin.com/v2/organizationalEntityAcls", {
-      headers,
-      params: {
-        q: "roleAssignee",
-        role: "ADMINISTRATOR",
-        state: "APPROVED",
-      },
-    });
+    const baseParams = { q: "roleAssignee", state: "APPROVED" };
+    const fetchByRoles = async () => {
+      const mergedElements = [];
+      for (const role of ACL_ROLES_FOR_PAGES) {
+        try {
+          const r = await axios.get("https://api.linkedin.com/v2/organizationalEntityAcls", {
+            headers,
+            params: { ...baseParams, role },
+          });
+          const els = Array.isArray(r.data?.elements) ? r.data.elements : [];
+          mergedElements.push(...els);
+        } catch {
+          /* continue */
+        }
+      }
+      return mergedElements;
+    };
+
+    let response;
+    try {
+      response = await axios.get("https://api.linkedin.com/v2/organizationalEntityAcls", {
+        headers,
+        params: { ...baseParams },
+      });
+    } catch (unfilteredError) {
+      const mergedElements = await fetchByRoles();
+      if (!mergedElements.length) throw unfilteredError;
+      acl = { elements: mergedElements };
+      response = { data: acl };
+    }
+
+    if (!response) {
+      throw new Error("LinkedIn ACL response missing.");
+    }
+
     acl = response.data;
+    const firstElements = Array.isArray(acl?.elements) ? acl.elements : [];
+    if (!firstElements.length) {
+      const mergedElements = await fetchByRoles();
+      acl = { elements: mergedElements };
+    }
   } catch (error) {
     const status = error?.response?.status || 500;
     const message = error?.response?.data?.message || error?.message || "LinkedIn organization lookup failed.";
@@ -81,13 +143,7 @@ linkedinService.getManagedEntities = async function getManagedEntities(accessTok
   }
 
   const elements = Array.isArray(acl?.elements) ? acl.elements : [];
-  const orgIds = Array.from(
-    new Set(
-      elements
-        .map((item) => extractOrganizationId(item?.organizationalTarget || item?.organizationalTargetUrn || item))
-        .filter(Boolean)
-    )
-  );
+  const orgIds = Array.from(new Set(elements.map((item) => organizationIdFromAclElement(item)).filter(Boolean)));
   if (!orgIds.length) return [];
 
   const organizations = await Promise.all(
