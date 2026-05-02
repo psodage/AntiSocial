@@ -181,4 +181,67 @@ linkedinService.getManagedEntities = async function getManagedEntities(accessTok
   return organizations;
 };
 
+/**
+ * @param {string} accessToken
+ * @param {{ authorUrn: string, commentary: string, mediaType: 'TEXT' | 'LINK', linkUrl?: string }} options
+ */
+linkedinService.createUgcPost = async function createUgcPost(accessToken, { authorUrn, commentary, mediaType, linkUrl }) {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "X-Restli-Protocol-Version": "2.0.0",
+    "Content-Type": "application/json",
+  };
+
+  const trimmedCommentary = typeof commentary === "string" ? commentary.trim() : "";
+  const isLink = mediaType === "LINK" && linkUrl;
+
+  const shareContent = {
+    shareCommentary: {
+      text: trimmedCommentary || (isLink ? "Shared link" : ""),
+    },
+    shareMediaCategory: isLink ? "ARTICLE" : "NONE",
+  };
+
+  if (isLink) {
+    const titleText = trimmedCommentary.slice(0, 200) || "Link";
+    shareContent.media = [
+      {
+        status: "READY",
+        originalUrl: linkUrl,
+        title: { text: titleText },
+      },
+    ];
+  }
+
+  const body = {
+    author: authorUrn,
+    lifecycleState: "PUBLISHED",
+    specificContent: {
+      "com.linkedin.ugc.ShareContent": shareContent,
+    },
+    visibility: {
+      "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+    },
+  };
+
+  try {
+    const response = await axios.post("https://api.linkedin.com/v2/ugcPosts", body, { headers });
+    const id = response.data?.id ? String(response.data.id) : "";
+    return { id, raw: response.data };
+  } catch (error) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const msg =
+      (typeof data?.message === "string" && data.message) ||
+      (typeof data?.errorDetail === "string" && data.errorDetail) ||
+      error?.message ||
+      "LinkedIn publish request failed.";
+    const err = new Error(msg);
+    err.status = status || 502;
+    err.code = status === 401 || status === 403 ? "linkedin_unauthorized" : "linkedin_post_failed";
+    err.details = data;
+    throw err;
+  }
+};
+
 export default linkedinService;

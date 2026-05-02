@@ -39,6 +39,8 @@ const socialAccountSchema = new mongoose.Schema(
     isPrimary: { type: Boolean, default: false },
     parentAccountId: { type: mongoose.Schema.Types.ObjectId, default: null, ref: "SocialAccount" },
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /** Encrypted page access tokens keyed by Facebook Page id (server-only; never exposed via API). */
+    pagePublishingTokens: { type: mongoose.Schema.Types.Mixed, default: {} },
     lastSyncedAt: { type: Date, default: null },
   },
   { timestamps: true }

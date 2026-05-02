@@ -108,7 +108,7 @@ export default function XCreatePostModal({ open, onClose }) {
               rows={6}
               maxLength={MAX}
               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500"
-              placeholder="What’s happening?"
+              placeholder="What's happening?"
               value={content}
               onChange={(e) => {
                 setContent(e.target.value);

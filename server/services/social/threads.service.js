@@ -63,6 +63,21 @@ function ensureThreadsConfig() {
   return { appId, appSecret, redirectUri };
 }
 
+export const THREADS_TEXT_MAX_LENGTH = 500;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractThreadsGraphErrorMessage(data) {
+  const err = data?.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    return err.message || err.error_user_msg || err.error_user_title || err.type || "Threads API error.";
+  }
+  return null;
+}
+
 async function threadsGraphGet(path, accessToken, params = {}) {
   try {
     const response = await axios.get(`${THREADS_GRAPH_BASE_URL}${path}`, {
@@ -79,9 +94,31 @@ async function threadsGraphGet(path, accessToken, params = {}) {
   }
 }
 
+async function threadsGraphFormPost(path, accessToken, fields) {
+  const params = new URLSearchParams();
+  params.set("access_token", accessToken);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) continue;
+    const str = String(value);
+    if (str === "") continue;
+    params.set(key, str);
+  }
+  try {
+    const response = await axios.post(`${THREADS_GRAPH_BASE_URL}${path}`, params.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    return response.data;
+  } catch (error) {
+    const status = error?.response?.status || 500;
+    const data = error?.response?.data;
+    const message = extractThreadsGraphErrorMessage(data) || error?.message || "Threads API request failed.";
+    throw createThreadsError(message, "threads_graph_error", status, data);
+  }
+}
+
 const threadsService = {
   platform: "threads",
-  defaultScopes: ["threads_basic"],
+  defaultScopes: ["threads_basic", "threads_content_publish"],
   allowedScopes: Array.from(THREADS_ALLOWED_SCOPES),
 
   validateConfig() {
@@ -193,6 +230,53 @@ const threadsService = {
 
   async disconnectAccount() {
     return { disconnected: true };
+  },
+
+  /**
+   * Step 1: Create a Threads media/text container (form-encoded per Threads Graph API).
+   * @param {string} threadsUserId
+   * @param {string} accessToken
+   * @param {{ mediaType: 'TEXT' | 'IMAGE' | 'VIDEO', text: string, mediaUrl: string }} payload
+   */
+  async createPostContainer(threadsUserId, accessToken, payload) {
+    const { mediaType, text, mediaUrl } = payload;
+    const path = `/${threadsUserId}/threads`;
+    const fields = { media_type: mediaType };
+    if (mediaType === "TEXT") {
+      fields.text = text;
+    } else if (mediaType === "IMAGE") {
+      fields.image_url = mediaUrl;
+      if (text) fields.text = text;
+    } else if (mediaType === "VIDEO") {
+      fields.video_url = mediaUrl;
+      if (text) fields.text = text;
+    }
+    return threadsGraphFormPost(path, accessToken, fields);
+  },
+
+  async publishPostContainer(threadsUserId, accessToken, creationId) {
+    const path = `/${threadsUserId}/threads_publish`;
+    return threadsGraphFormPost(path, accessToken, { creation_id: creationId });
+  },
+
+  /**
+   * Create container, optionally wait for media processing, then publish.
+   */
+  async createAndPublishPost(threadsUserId, accessToken, payload) {
+    const container = await this.createPostContainer(threadsUserId, accessToken, payload);
+    const creationId = container?.id ? String(container.id) : "";
+    if (!creationId) {
+      const err = new Error("Threads did not return a container id. Check media URL and permissions.");
+      err.code = "threads_no_container_id";
+      err.status = 502;
+      throw err;
+    }
+    if (payload.mediaType === "IMAGE" || payload.mediaType === "VIDEO") {
+      await delay(3000);
+    }
+    const published = await this.publishPostContainer(threadsUserId, accessToken, creationId);
+    const postId = published?.id ? String(published.id) : creationId;
+    return { postId, container, published };
   },
 };
 

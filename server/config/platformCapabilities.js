@@ -27,7 +27,7 @@ export const PLATFORM_CAPABILITIES = {
     oauth: true,
     posting: true,
     analytics: true,
-    mediaUpload: false,
+    mediaUpload: true,
     communityPosting: false,
     businessSupport: false,
     webhooks: false,

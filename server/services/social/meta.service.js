@@ -8,6 +8,8 @@ const META_GRAPH_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 export const META_SCOPE_SETS = {
   initialLogin: ["public_profile", "email"],
   pages: ["pages_show_list"],
+  /** Required for publishing as a Page via /{page-id}/feed, photos, videos */
+  pagePosting: ["pages_read_engagement", "pages_manage_posts"],
   instagramBasic: ["instagram_basic"],
   publishing: ["instagram_content_publish"],
   insights: ["instagram_manage_insights"],

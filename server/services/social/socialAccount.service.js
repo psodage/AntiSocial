@@ -9,31 +9,32 @@ function normalizePlatform(platform) {
 }
 
 function mapAccount(account) {
-  const expiresAt = account.expiresAt ? new Date(account.expiresAt) : null;
+  const plain = account?.toObject?.({ depopulate: true }) || account;
+  const expiresAt = plain.expiresAt ? new Date(plain.expiresAt) : null;
   const isExpired = !!expiresAt && expiresAt.getTime() <= Date.now();
   return {
-    id: account._id,
-    platform: account.platform,
-    platformUserId: account.platformUserId,
-    entityType: account.entityType || "profile",
-    entityId: account.entityId || "",
-    accountName: account.accountName,
-    username: account.username,
-    email: account.email,
-    profileImage: account.profileImage,
-    tokenType: account.tokenType,
+    id: plain._id,
+    platform: plain.platform,
+    platformUserId: plain.platformUserId,
+    entityType: plain.entityType || "profile",
+    entityId: plain.entityId || "",
+    accountName: plain.accountName,
+    username: plain.username,
+    email: plain.email,
+    profileImage: plain.profileImage,
+    tokenType: plain.tokenType,
     expiresAt,
     isTokenExpired: isExpired,
-    scopes: account.scopes || [],
-    capabilities: account.capabilities || [],
-    isConnected: account.isConnected,
-    isPrimary: Boolean(account.isPrimary),
-    parentAccountId: account.parentAccountId || null,
-    connectedByUserId: account.connectedByUserId || account.userId,
-    metadata: account.metadata || {},
-    lastSyncedAt: account.lastSyncedAt,
-    createdAt: account.createdAt,
-    updatedAt: account.updatedAt,
+    scopes: plain.scopes || [],
+    capabilities: plain.capabilities || [],
+    isConnected: plain.isConnected,
+    isPrimary: Boolean(plain.isPrimary),
+    parentAccountId: plain.parentAccountId || null,
+    connectedByUserId: plain.connectedByUserId || plain.userId,
+    metadata: plain.metadata || {},
+    lastSyncedAt: plain.lastSyncedAt,
+    createdAt: plain.createdAt,
+    updatedAt: plain.updatedAt,
   };
 }
 
@@ -88,29 +89,34 @@ export async function upsertConnectedAccount({ userId, platform, profile, tokenD
   }
 
   const now = new Date();
+  const setDoc = {
+    platformUserId: profile.platformUserId,
+    entityType,
+    entityId,
+    accountName: profile.accountName || "",
+    username: profile.username || "",
+    email: profile.email || "",
+    profileImage: profile.profileImage || "",
+    tokenType: tokenData.tokenType || "Bearer",
+    expiresAt: tokenData.expiresIn ? new Date(Date.now() + tokenData.expiresIn * 1000) : null,
+    scopes: tokenData.scopes || [],
+    isConnected: true,
+    isPrimary: profile.isPrimary !== false,
+    capabilities: Array.isArray(profile.capabilities) ? profile.capabilities : profile?.metadata?.capabilities || [],
+    metadata: profile.metadata || {},
+    lastSyncedAt: now,
+    accessToken: encryptToken(tokenData.accessToken || ""),
+    refreshToken: encryptToken(tokenData.refreshToken || ""),
+    connectedByUserId: userId,
+  };
+  if (profile.pagePublishingTokens && typeof profile.pagePublishingTokens === "object") {
+    setDoc.pagePublishingTokens = profile.pagePublishingTokens;
+  }
+
   const account = await SocialAccount.findOneAndUpdate(
     { userId, platform: normalizedPlatform, entityType, entityId },
     {
-      $set: {
-        platformUserId: profile.platformUserId,
-        entityType,
-        entityId,
-        accountName: profile.accountName || "",
-        username: profile.username || "",
-        email: profile.email || "",
-        profileImage: profile.profileImage || "",
-        tokenType: tokenData.tokenType || "Bearer",
-        expiresAt: tokenData.expiresIn ? new Date(Date.now() + tokenData.expiresIn * 1000) : null,
-        scopes: tokenData.scopes || [],
-        isConnected: true,
-        isPrimary: profile.isPrimary !== false,
-        capabilities: Array.isArray(profile.capabilities) ? profile.capabilities : profile?.metadata?.capabilities || [],
-        metadata: profile.metadata || {},
-        lastSyncedAt: now,
-        accessToken: encryptToken(tokenData.accessToken || ""),
-        refreshToken: encryptToken(tokenData.refreshToken || ""),
-        connectedByUserId: userId,
-      },
+      $set: setDoc,
       $setOnInsert: {
         userId,
         platform: normalizedPlatform,
@@ -152,4 +158,24 @@ export async function refreshAccountToken(userId, platform, refreshed) {
 
 export async function getStoredAccountForProvider(userId, platform) {
   return SocialAccount.findOne({ userId, platform: normalizePlatform(platform) });
+}
+
+/** LinkedIn stores one row per profile plus optional organization rows; tokens are duplicated. Prefer the profile row for publishing. */
+export async function getLinkedInAccountForToken(userId) {
+  const platform = "linkedin";
+  let doc =
+    (await SocialAccount.findOne({ userId, platform, entityType: "profile" })) ||
+    (await SocialAccount.findOne({ userId, platform, isPrimary: true })) ||
+    (await SocialAccount.findOne({ userId, platform }));
+  return doc;
+}
+
+export async function getLinkedInOrganizationAccount(userId, organizationId) {
+  if (!organizationId) return null;
+  return SocialAccount.findOne({
+    userId,
+    platform: "linkedin",
+    entityType: "organization",
+    entityId: String(organizationId),
+  });
 }

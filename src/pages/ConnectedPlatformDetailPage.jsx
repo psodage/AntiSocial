@@ -5,6 +5,10 @@ import { useApp } from "../context/AppContext";
 import { PLATFORM_CAPABILITY_MATRIX, SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
 import { buildPostingTargetsConfig } from "../utils/connectedPlatformPostingTargets";
 import XCreatePostModal from "../components/social/XCreatePostModal";
+import FacebookCreatePostModal from "../components/social/FacebookCreatePostModal";
+import LinkedInCreatePostModal from "../components/social/LinkedInCreatePostModal";
+import ThreadsCreatePostModal from "../components/social/ThreadsCreatePostModal";
+import InstagramCreatePostModal from "../components/social/InstagramCreatePostModal";
 
 function formatPlatformLabel(platformKey) {
   const config = SOCIAL_PLATFORM_CONFIGS.find((platform) => platform.key === platformKey);
@@ -48,8 +52,35 @@ export default function ConnectedPlatformDetailPage() {
   const { platformKey } = useParams();
   const { connectedAccounts } = useApp();
   const navigate = useNavigate();
+  const [instagramComposerOpen, setInstagramComposerOpen] = useState(false);
+  const [threadsComposerOpen, setThreadsComposerOpen] = useState(false);
+
+  const goToComposer = (path) => {
+    if (platformKey === "threads") {
+      setThreadsComposerOpen(true);
+      return;
+    }
+    navigate(path);
+  };
   const [xPostModalOpen, setXPostModalOpen] = useState(false);
   const openXComposer = () => setXPostModalOpen(true);
+  const [facebookPostModalOpen, setFacebookPostModalOpen] = useState(false);
+  const [facebookPresetPageId, setFacebookPresetPageId] = useState("");
+  const openFacebookComposer = (pageId = "") => {
+    setFacebookPresetPageId(pageId || "");
+    setFacebookPostModalOpen(true);
+  };
+
+  const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
+  const [linkedinPreset, setLinkedinPreset] = useState({ targetType: "profile", organizationId: null });
+  const openLinkedInComposer = (action) => {
+    setLinkedinPreset(
+      action && typeof action === "object"
+        ? { targetType: action.targetType || "profile", organizationId: action.organizationId ?? null }
+        : { targetType: "profile", organizationId: null }
+    );
+    setLinkedinModalOpen(true);
+  };
 
   const account = useMemo(
     () => connectedAccounts.find((item) => item.platform === platformKey),
@@ -106,10 +137,21 @@ export default function ConnectedPlatformDetailPage() {
             <h1 className="text-xl font-semibold text-white">{label} Details</h1>
             <p className="mt-1 text-sm text-slate-300">Connection details, account identity, and sync metadata for this platform.</p>
           </div>
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-            <CheckCircle2 size={14} />
-            Connected
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {platformKey === "instagram" ? (
+              <button
+                type="button"
+                onClick={() => setInstagramComposerOpen(true)}
+                className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600"
+              >
+                Create post
+              </button>
+            ) : null}
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+              <CheckCircle2 size={14} />
+              Connected
+            </span>
+          </div>
         </div>
       </article>
 
@@ -135,7 +177,7 @@ export default function ConnectedPlatformDetailPage() {
           ) : null}
           {platformKey === "facebook" ? (
             <p>
-              <span className="text-slate-400">Facebook Pages (excl. profile):</span> {facebookPageOnlyCount}
+              <span className="text-slate-400">Facebook Pages:</span> {facebookPageOnlyCount}
             </p>
           ) : null}
           {platformKey === "linkedin" ? (
@@ -153,10 +195,17 @@ export default function ConnectedPlatformDetailPage() {
               <h2 className="text-sm font-semibold text-white">{postingTargets.title}</h2>
               <p className="mt-1 text-xs text-slate-400">{postingTargets.description}</p>
             </div>
-            {postingTargets.primaryCtaPath ? (
+            {postingTargets.primaryCtaPath || platformKey === "linkedin" || platformKey === "facebook" || platformKey === "instagram" ? (
               <button
                 type="button"
-                onClick={() => (platformKey === "x" ? openXComposer() : navigate(postingTargets.primaryCtaPath))}
+                onClick={() => {
+                  if (platformKey === "x") openXComposer();
+                  else if (platformKey === "linkedin") openLinkedInComposer({ targetType: "profile", organizationId: null });
+                  else if (platformKey === "facebook") openFacebookComposer("");
+                  else if (platformKey === "instagram") setInstagramComposerOpen(true);
+                  else if (platformKey === "threads") goToComposer(postingTargets.primaryCtaPath);
+                  else navigate(postingTargets.primaryCtaPath);
+                }}
                 className="shrink-0 rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
               >
                 {postingTargets.primaryCtaLabel || "Create post"}
@@ -169,7 +218,14 @@ export default function ConnectedPlatformDetailPage() {
               <button
                 key={card.key}
                 type="button"
-                onClick={() => (platformKey === "x" ? openXComposer() : navigate(card.path))}
+                onClick={() => {
+                  if (platformKey === "x") openXComposer();
+                  else if (platformKey === "linkedin" && card.linkedinAction) openLinkedInComposer(card.linkedinAction);
+                  else if (platformKey === "facebook") openFacebookComposer(card.facebookPageId || "");
+                  else if (platformKey === "instagram") setInstagramComposerOpen(true);
+                  else if (platformKey === "threads") goToComposer(card.path);
+                  else navigate(card.path);
+                }}
                 className="group flex flex-col overflow-hidden rounded-2xl border border-slate-600/80 bg-slate-950/50 text-left shadow-lg shadow-slate-950/40 ring-1 ring-slate-700/50 transition hover:border-blue-500/50 hover:ring-blue-500/30"
               >
                 <div className="flex items-start gap-4 p-4">
@@ -202,6 +258,32 @@ export default function ConnectedPlatformDetailPage() {
       ) : null}
 
       {platformKey === "x" ? <XCreatePostModal open={xPostModalOpen} onClose={() => setXPostModalOpen(false)} /> : null}
+      {platformKey === "facebook" ? (
+        <FacebookCreatePostModal
+          open={facebookPostModalOpen}
+          onClose={() => {
+            setFacebookPostModalOpen(false);
+            setFacebookPresetPageId("");
+          }}
+          account={account}
+          presetPageId={facebookPresetPageId}
+        />
+      ) : null}
+      {platformKey === "linkedin" ? (
+        <LinkedInCreatePostModal
+          open={linkedinModalOpen}
+          onClose={() => setLinkedinModalOpen(false)}
+          account={account}
+          preset={linkedinPreset}
+        />
+      ) : null}
+
+      {platformKey === "threads" ? (
+        <ThreadsCreatePostModal open={threadsComposerOpen} onClose={() => setThreadsComposerOpen(false)} />
+      ) : null}
+      {platformKey === "instagram" ? (
+        <InstagramCreatePostModal open={instagramComposerOpen} onClose={() => setInstagramComposerOpen(false)} />
+      ) : null}
 
       <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
         <h2 className="text-sm font-semibold text-white">Capabilities</h2>

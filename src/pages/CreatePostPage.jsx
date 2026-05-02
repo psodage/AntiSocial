@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { getSocialAccounts } from "../services/socialApi";
+import { getSocialAccounts, postToThreads, uploadSocialPublicMedia } from "../services/socialApi";
 import { PLATFORM_CAPABILITY_MATRIX, SOCIAL_PLATFORM_CONFIGS } from "../data/socialPlatforms";
 
 const PLATFORM_RULES = {
   x: "Keep posts concise. API tier determines analytics availability.",
+  threads:
+    "500 characters max. Media posts need a URL Threads can fetch (HTTPS, public internet). Uploads are stored on your API server at APP_BASE_URL.",
   reddit: "Choose an authenticated subreddit and post type (text/link/image).",
   pinterest: "Pins require visual media and board selection.",
   telegram: "Bot must be added as admin to target group/channel.",
@@ -35,12 +37,21 @@ function formatBytes(bytes) {
   return `${Math.round(mb)}MB`;
 }
 
+function inferThreadsMediaTypeFromUrl(url) {
+  const u = (url || "").toLowerCase();
+  if (/\.(mp4|mov|webm|m4v)(\?|#|$)/i.test(u)) return "VIDEO";
+  return "IMAGE";
+}
+
 export default function CreatePostPage() {
   const [caption, setCaption] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState("");
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [entitySelection, setEntitySelection] = useState({});
   const [file, setFile] = useState(null);
+  const [threadsMediaUrl, setThreadsMediaUrl] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [threadsComposerError, setThreadsComposerError] = useState("");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { setToast } = useApp();
@@ -54,7 +65,13 @@ export default function CreatePostPage() {
 
   const entityIdFromUrl = useMemo(() => searchParams.get("entityId")?.trim() || "", [searchParams]);
 
-  const imagePreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  const mediaObjectUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaObjectUrl) URL.revokeObjectURL(mediaObjectUrl);
+    };
+  }, [mediaObjectUrl]);
 
   useEffect(() => {
     getSocialAccounts()
@@ -92,6 +109,11 @@ export default function CreatePostPage() {
     setEntitySelection((prev) => ({ ...prev, googleBusiness: entityIdFromUrl }));
   }, [entityIdFromUrl, scopedPlatformKey]);
 
+  useEffect(() => {
+    setThreadsMediaUrl("");
+    setThreadsComposerError("");
+  }, [selectedPlatform]);
+
   const selectedPlatformConfig = useMemo(
     () => SOCIAL_PLATFORM_CONFIGS.find((item) => item.key === selectedPlatform) || null,
     [selectedPlatform]
@@ -112,6 +134,19 @@ export default function CreatePostPage() {
     const capability = PLATFORM_CAPABILITY_MATRIX[selectedPlatform];
     const account = connectedByPlatform[selectedPlatform];
     if (!account?.isConnected) return `${selectedPlatform} is not connected.`;
+    if (selectedPlatform === "threads") {
+      const urlT = threadsMediaUrl.trim();
+      if (!caption.trim() && !file && !urlT) return "Add post text, a media file, or a public media URL.";
+      if (urlT && file) return "For Threads, use either a media URL or a file upload—not both.";
+      if (urlT) {
+        try {
+          const u = new URL(urlT);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return "Media URL must use http or https.";
+        } catch {
+          return "Enter a valid public media URL.";
+        }
+      }
+    }
     if (isMediaRequired && !file) return `${selectedPlatformConfig?.label || selectedPlatform} publishing requires media.`;
     if (selectedPlatform === "googleBusiness" && !entitySelection[selectedPlatform]) return "Select a Google Business location.";
     if (selectedPlatform === "reddit" && !entitySelection[selectedPlatform]) return "Select a subreddit before posting to Reddit.";
@@ -168,11 +203,64 @@ export default function CreatePostPage() {
     }
   }, [file, selectedPlatform, selectedPlatformConfig, setToast]);
 
-  const publish = () => {
-    if (!caption.trim() && !file) return setToast({ message: "Add a caption or media before publishing.", error: true });
+  const publish = async () => {
+    setThreadsComposerError("");
     if (!selectedPlatform) return setToast({ message: "Select a platform.", error: true });
+
+    const urlT = threadsMediaUrl.trim();
+    if (selectedPlatform === "threads") {
+      if (!caption.trim() && !file && !urlT) {
+        const msg = "Add post text, a media file, or a public media URL.";
+        setThreadsComposerError(msg);
+        return setToast({ message: msg, error: true });
+      }
+    } else if (!caption.trim() && !file) {
+      return setToast({ message: "Add a caption or media before publishing.", error: true });
+    }
+
     const validationError = validatePlatformPayload();
-    if (validationError) return setToast({ message: validationError, error: true });
+    if (validationError) {
+      if (selectedPlatform === "threads") setThreadsComposerError(validationError);
+      return setToast({ message: validationError, error: true });
+    }
+
+    if (selectedPlatform === "threads") {
+      setIsPublishing(true);
+      try {
+        const trimmed = caption.trim();
+        let mediaType = "TEXT";
+        let mediaUrl = "";
+        if (file) {
+          mediaUrl = await uploadSocialPublicMedia(file);
+          mediaType = (file.type || "").startsWith("video/") ? "VIDEO" : "IMAGE";
+        } else if (urlT) {
+          mediaUrl = urlT;
+          mediaType = inferThreadsMediaTypeFromUrl(urlT);
+        } else {
+          mediaType = "TEXT";
+        }
+        if (mediaType === "TEXT" && !trimmed.length) {
+          const msg = "Enter text for a Threads text post.";
+          setThreadsComposerError(msg);
+          setToast({ message: msg, error: true });
+          return;
+        }
+        const result = await postToThreads({ text: trimmed, mediaUrl, mediaType });
+        setCaption("");
+        setFile(null);
+        setThreadsMediaUrl("");
+        setSelectedPlatform(scopedAccountConnected && scopedPlatformKey ? scopedPlatformKey : "");
+        setToast({ message: result?.message || "Published to Threads." });
+      } catch (error) {
+        const msg = error?.message || "Could not publish to Threads.";
+        setThreadsComposerError(msg);
+        setToast({ message: msg, error: true });
+      } finally {
+        setIsPublishing(false);
+      }
+      return;
+    }
+
     setCaption("");
     setFile(null);
     setSelectedPlatform(scopedAccountConnected && scopedPlatformKey ? scopedPlatformKey : "");
@@ -277,7 +365,10 @@ export default function CreatePostPage() {
           className="mb-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-950"
           placeholder="Write a caption for your post…"
           value={caption}
-          onChange={(e) => setCaption(e.target.value)}
+          onChange={(e) => {
+            setThreadsComposerError("");
+            setCaption(e.target.value);
+          }}
         />
         <p className="mb-4 text-xs text-slate-500">
           {caption.length.toLocaleString()} / {captionMaxLength.toLocaleString()}
@@ -286,9 +377,34 @@ export default function CreatePostPage() {
           className="mb-4 block w-full text-sm"
           type="file"
           accept={mediaAccept}
-          disabled={!selectedPlatform}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          disabled={!selectedPlatform || (selectedPlatform === "threads" && Boolean(threadsMediaUrl.trim()))}
+          onChange={(e) => {
+            setThreadsComposerError("");
+            setFile(e.target.files?.[0] ?? null);
+          }}
         />
+        {selectedPlatform === "threads" ? (
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Public media URL (optional)</label>
+            <input
+              type="url"
+              disabled={Boolean(file) || isPublishing}
+              value={threadsMediaUrl}
+              onChange={(e) => {
+                setThreadsComposerError("");
+                setThreadsMediaUrl(e.target.value);
+              }}
+              placeholder="https://… (image or video Threads can download)"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-950 disabled:opacity-60"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Video URLs ending in .mp4, .mov, or .webm are treated as VIDEO; other URLs as IMAGE. Leave empty if you upload a file instead.
+            </p>
+          </div>
+        ) : null}
+        {selectedPlatform === "threads" && threadsComposerError ? (
+          <p className="mb-3 text-sm text-rose-600 dark:text-rose-400">{threadsComposerError}</p>
+        ) : null}
         {selectedPlatform ? (
           <div className="mb-5 rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-xs text-slate-300">
             <p className="font-semibold">{selectedPlatformConfig?.label || selectedPlatform} rules</p>
@@ -312,14 +428,24 @@ export default function CreatePostPage() {
           <button onClick={() => navigate("/schedule")} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold dark:border-slate-700">
             Schedule Post
           </button>
-          <button onClick={publish} className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600">
-            Publish Now
+          <button
+            type="button"
+            disabled={isPublishing || !selectedPlatform}
+            onClick={publish}
+            className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+          >
+            {isPublishing && selectedPlatform === "threads" ? "Publishing…" : "Publish Now"}
           </button>
         </div>
       </article>
       <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
         <h2 className="mb-4 text-sm font-semibold">Live preview</h2>
-        {imagePreview && <img src={imagePreview} alt="Preview" className="mb-3 w-full rounded-md border border-slate-200 dark:border-slate-700" />}
+        {mediaObjectUrl && file && (file.type || "").startsWith("video/") ? (
+          <video src={mediaObjectUrl} controls className="mb-3 w-full rounded-md border border-slate-200 dark:border-slate-700" />
+        ) : null}
+        {mediaObjectUrl && file && !(file.type || "").startsWith("video/") ? (
+          <img src={mediaObjectUrl} alt="Preview" className="mb-3 w-full rounded-md border border-slate-200 dark:border-slate-700" />
+        ) : null}
         <p className="whitespace-pre-wrap text-sm">{caption.trim() || "Your caption will appear here…"}</p>
         <div className="mt-4 space-y-2 text-xs text-slate-500">
           {selectedPlatform ? (

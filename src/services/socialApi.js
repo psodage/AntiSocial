@@ -88,6 +88,9 @@ export async function startSocialConnect(platform, options = {}) {
     const normalized = (platform || "").toLowerCase();
     const isFacebook = normalized === "facebook";
     const isInstagram = normalized === "instagram";
+    if (normalized === "threads") {
+      params.set("scope_set", "publish");
+    }
     if (isFacebook) {
       params.set("platform", normalized);
     }
@@ -141,11 +144,96 @@ export async function getSocialEnvDebug() {
   }
 }
 
+/**
+ * Uploads image/video to the server and returns a public URL suitable for Instagram publishing.
+ */
+export async function uploadSocialPublicMediaFile(file) {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await socialClient.post("/api/social/upload/public-media", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.data?.url || "";
+  } catch (error) {
+    throw parseApiError(error, "Unable to upload media.");
+  }
+}
+
+/**
+ * Publishes to the connected Instagram professional account (server uses stored token; never returned here).
+ */
+export async function publishInstagramPost(body) {
+  try {
+    const { data } = await socialClient.post("/api/social/instagram/post", body);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish to Instagram.");
+  }
+}
+
 export async function postToX(content) {
   try {
     const { data } = await socialClient.post("/api/social/x/post", { content });
     return data;
   } catch (error) {
     throw parseApiError(error, "Unable to publish post on X.");
+  }
+}
+
+export async function uploadSocialPublicMedia(file) {
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await socialClient.post("/api/social/upload/public-media", form);
+    return data.data?.url || "";
+  } catch (error) {
+    throw parseApiError(error, "Unable to upload media.");
+  }
+}
+
+export async function postToThreads(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/threads/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on Threads.");
+  }
+}
+
+/**
+ * @param {{
+ *   content: string,
+ *   targetType: 'profile' | 'organization',
+ *   organizationId: string | null,
+ *   mediaType: 'TEXT' | 'IMAGE' | 'VIDEO' | 'LINK',
+ *   mediaUrl?: string,
+ *   linkUrl?: string,
+ * }} payload
+ */
+export async function postToLinkedIn(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/linkedin/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on LinkedIn.");
+  }
+}
+
+/**
+ * @param {{
+ *   pageId: string,
+ *   message: string,
+ *   mediaType: 'TEXT' | 'IMAGE' | 'VIDEO' | 'LINK',
+ *   mediaUrl?: string,
+ *   linkUrl?: string,
+ * }} payload
+ */
+export async function postToFacebook(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/facebook/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on Facebook.");
   }
 }
