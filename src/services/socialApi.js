@@ -64,6 +64,12 @@ export function getSocialOAuthErrorMessage(reason, platform) {
   if (normalized.includes("token_error")) {
     return "Could not complete token exchange with provider. Please reconnect.";
   }
+  if (normalized.includes("linkedin_orgs_forbidden")) {
+    return "LinkedIn blocked listing company pages (missing product/scopes or app restrictions). Your profile connection may still work; fix LinkedIn app permissions and reconnect.";
+  }
+  if (normalized.includes("linkedin_orgs_failed")) {
+    return "LinkedIn company page lookup failed. Your profile connection may still work; retry or check LinkedIn API status.";
+  }
   return reason;
 }
 

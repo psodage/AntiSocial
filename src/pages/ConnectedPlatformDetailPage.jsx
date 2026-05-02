@@ -28,6 +28,7 @@ export default function ConnectedPlatformDetailPage() {
     platformKey === "linkedin"
       ? (Array.isArray(account?.entities) ? account.entities : []).filter((entity) => entity.entityType === "organization")
       : [];
+  const linkedInOrgDiscoveryCode = platformKey === "linkedin" ? account?.metadata?.organizationDiscoveryErrorCode : null;
 
   if (!platformConfig) {
     return (
@@ -116,8 +117,11 @@ export default function ConnectedPlatformDetailPage() {
 
           {!linkedInOrganizations.length ? (
             <p className="mt-3 text-sm text-slate-400">
-              No LinkedIn company pages were found for this login. Ensure your LinkedIn app has the organization scopes and that your member is an admin
-              of the page, then reconnect.
+              {linkedInOrgDiscoveryCode === "linkedin_orgs_forbidden"
+                ? "LinkedIn would not return company pages for this token (often missing Community Management / organization APIs on your app, or the member is not an approved admin). Your personal profile connection is still saved; update the LinkedIn developer app products and scopes, then reconnect."
+                : linkedInOrgDiscoveryCode === "linkedin_orgs_failed"
+                  ? "Company pages could not be loaded from LinkedIn (temporary or configuration issue). Your profile connection is still saved; try reconnecting."
+                  : "No LinkedIn company pages were found for this login. Ensure your LinkedIn app has the organization scopes and that your member is an admin of the page, then reconnect."}
             </p>
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">

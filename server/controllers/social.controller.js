@@ -362,6 +362,30 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
       if (!profile?.platformUserId) {
         throw new Error("Unable to identify social account from provider profile.");
       }
+
+      let managedEntities = [];
+      let organizationDiscoveryErrorCode = null;
+      if (typeof provider.getManagedEntities === "function") {
+        try {
+          managedEntities = await provider.getManagedEntities(tokenData.accessToken, profile);
+        } catch (discoveryError) {
+          const code = discoveryError?.code;
+          if (
+            platform === "linkedin" &&
+            (code === "linkedin_orgs_forbidden" || code === "linkedin_orgs_failed")
+          ) {
+            organizationDiscoveryErrorCode = code;
+            console.warn("[oauth:callback:linkedin-orgs]", {
+              userId: decodedState.userId,
+              code,
+              message: discoveryError?.message,
+            });
+          } else {
+            throw discoveryError;
+          }
+        }
+      }
+
       await upsertConnectedAccount({
         userId: new ObjectId(decodedState.userId),
         platform,
@@ -369,14 +393,14 @@ async function handleOAuthCallback(req, res, requestedPlatform) {
           ...profile,
           entityType: profile.entityType || "profile",
           entityId: profile.entityId || profile.platformUserId,
+          metadata: {
+            ...(profile.metadata || {}),
+            ...(organizationDiscoveryErrorCode ? { organizationDiscoveryErrorCode } : {}),
+          },
         },
         tokenData,
       });
 
-      const managedEntities =
-        typeof provider.getManagedEntities === "function"
-          ? await provider.getManagedEntities(tokenData.accessToken, profile)
-          : [];
       if (Array.isArray(managedEntities) && managedEntities.length) {
         for (const entity of managedEntities) {
           if (!entity?.entityId) continue;
