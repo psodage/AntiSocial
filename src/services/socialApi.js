@@ -210,9 +210,27 @@ export async function postToThreads(payload) {
  *   mediaUrl?: string,
  *   linkUrl?: string,
  * }} payload
+ * @param {Blob | File | null | undefined} [mediaFile] Required for IMAGE/VIDEO (field name `media`).
  */
-export async function postToLinkedIn(payload) {
+export async function postToLinkedIn(payload, mediaFile) {
   try {
+    const isBlob = typeof Blob !== "undefined" && mediaFile instanceof Blob;
+    if (isBlob) {
+      const fd = new FormData();
+      fd.append("targetType", payload.targetType);
+      if (payload.organizationId != null && payload.organizationId !== "") {
+        fd.append("organizationId", String(payload.organizationId));
+      }
+      fd.append("mediaType", payload.mediaType);
+      fd.append("content", payload.content ?? "");
+      fd.append("linkUrl", payload.linkUrl ?? "");
+      fd.append("mediaUrl", payload.mediaUrl ?? "");
+      const filename =
+        typeof File !== "undefined" && mediaFile instanceof File && mediaFile.name ? mediaFile.name : "upload";
+      fd.append("media", mediaFile, filename);
+      const { data } = await socialClient.post("/api/social/linkedin/post", fd);
+      return data;
+    }
     const { data } = await socialClient.post("/api/social/linkedin/post", payload);
     return data;
   } catch (error) {
@@ -229,12 +247,119 @@ export async function postToLinkedIn(payload) {
  *   linkUrl?: string,
  * }} payload
  */
+/**
+ * Upload a video to the connected YouTube channel (multipart field `video`). Server uses stored Google tokens only.
+ * @param {{
+ *   channelId?: string,
+ *   title: string,
+ *   description?: string,
+ *   tags?: string,
+ *   categoryId?: string,
+ *   privacyStatus: 'public' | 'private' | 'unlisted',
+ *   madeForKids: boolean,
+ *   videoFile: File | Blob,
+ * }} payload
+ * @param {(evt: { loaded: number, total: number }) => void} [onUploadProgress] Progress for the request body to your API (not YouTube).
+ */
+export async function postYouTubeVideo(payload, onUploadProgress) {
+  try {
+    const fd = new FormData();
+    if (payload.channelId != null && String(payload.channelId).trim() !== "") {
+      fd.append("channelId", String(payload.channelId).trim());
+    }
+    fd.append("title", payload.title ?? "");
+    fd.append("description", payload.description ?? "");
+    fd.append("tags", payload.tags ?? "");
+    fd.append("categoryId", String(payload.categoryId ?? "22"));
+    fd.append("privacyStatus", payload.privacyStatus);
+    fd.append("madeForKids", payload.madeForKids ? "true" : "false");
+    const file = payload.videoFile;
+    const filename =
+      typeof File !== "undefined" && file instanceof File && file.name ? file.name : "video";
+    fd.append("video", file, filename);
+    const { data } = await socialClient.post("/api/social/youtube/post", fd, {
+      timeout: 0,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      onUploadProgress: onUploadProgress
+        ? (pe) => {
+            const total = Number(pe.total) || 0;
+            const loaded = Number(pe.loaded) || 0;
+            if (total > 0) onUploadProgress({ loaded, total });
+          }
+        : undefined,
+    });
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to upload video to YouTube.");
+  }
+}
+
 export async function postToFacebook(payload) {
   try {
     const { data } = await socialClient.post("/api/social/facebook/post", payload);
     return data;
   } catch (error) {
     throw parseApiError(error, "Unable to publish post on Facebook.");
+  }
+}
+
+/**
+ * @param {{ chatId: string, chatTitle: string, chatType: 'channel'|'group'|'supergroup' }[]} targets
+ */
+export async function putTelegramTargets(targets) {
+  try {
+    const { data } = await socialClient.put("/api/social/telegram/targets", { targets });
+    return data.data?.account;
+  } catch (error) {
+    throw parseApiError(error, "Unable to save Telegram targets.");
+  }
+}
+
+/**
+ * @param {{
+ *   chatId: string,
+ *   message: string,
+ *   mediaType: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LINK',
+ *   mediaUrl?: string,
+ *   linkUrl?: string,
+ *   buttonText?: string,
+ *   buttonUrl?: string,
+ * }} payload
+ */
+export async function postToTelegram(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/telegram/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish to Telegram.");
+  }
+}
+
+/**
+ * @param {{
+ *   locationId: string,
+ *   accountId: string,
+ *   postType: 'STANDARD' | 'EVENT' | 'OFFER',
+ *   summary: string,
+ *   mediaUrl?: string,
+ *   ctaType?: string,
+ *   ctaUrl?: string,
+ *   eventTitle?: string,
+ *   offerTitle?: string,
+ *   startDate?: string,
+ *   endDate?: string,
+ *   couponCode?: string,
+ *   redeemUrl?: string,
+ *   termsConditions?: string,
+ * }} payload
+ */
+export async function postToGoogleBusiness(payload) {
+  try {
+    const { data } = await socialClient.post("/api/social/google-business/post", payload);
+    return data;
+  } catch (error) {
+    throw parseApiError(error, "Unable to publish post on Google Business Profile.");
   }
 }
 

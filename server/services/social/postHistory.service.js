@@ -18,7 +18,7 @@ export function sanitizeApiSnapshot(snapshot) {
   if (typeof snapshot !== "object" || Array.isArray(snapshot)) return {};
   /** @type {Record<string, string>} */
   const out = {};
-  for (const key of ["id", "post_id", "creationId", "publishedId"]) {
+  for (const key of ["id", "post_id", "message_id", "creationId", "publishedId", "name"]) {
     const v = snapshot[key];
     if (v !== undefined && v !== null && String(v).length > 0) {
       out[key] = String(v).slice(0, 512);

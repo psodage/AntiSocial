@@ -1,3 +1,4 @@
+import { Readable } from "stream";
 import { google } from "googleapis";
 
 const YOUTUBE_SCOPES = [
@@ -129,6 +130,59 @@ const youtubeService = {
   },
   async disconnectAccount() {
     return { disconnected: true };
+  },
+
+  /**
+   * Upload a video via YouTube Data API v3 `videos.insert` (resumable upload when supported by the client).
+   * @param {string} accessToken
+   * @param {object} opts
+   * @param {Buffer} opts.buffer
+   * @param {string} opts.mimeType
+   * @param {string} opts.title
+   * @param {string} opts.description
+   * @param {string[]} opts.tags
+   * @param {string} opts.categoryId
+   * @param {'public'|'private'|'unlisted'} opts.privacyStatus
+   * @param {boolean} opts.madeForKids
+   * @param {(evt: { loaded: number, total: number }) => void} [opts.onUploadProgress]
+   */
+  async uploadVideo(accessToken, opts) {
+    const oauth2Client = createClient();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtube = google.youtube({ version: "v3", auth: oauth2Client });
+    const body = Readable.from(opts.buffer);
+    const requestBody = {
+      snippet: {
+        title: opts.title,
+        description: opts.description || "",
+        tags: opts.tags.length ? opts.tags : undefined,
+        categoryId: String(opts.categoryId || "22"),
+      },
+      status: {
+        privacyStatus: opts.privacyStatus,
+        selfDeclaredMadeForKids: Boolean(opts.madeForKids),
+      },
+    };
+    const callOptions = {};
+    if (typeof opts.onUploadProgress === "function") {
+      callOptions.onUploadProgress = (evt) => {
+        const total = opts.buffer?.length || 0;
+        const loaded = typeof evt.bytesRead === "number" ? evt.bytesRead : 0;
+        if (total > 0) opts.onUploadProgress({ loaded, total });
+      };
+    }
+    const res = await youtube.videos.insert(
+      {
+        part: ["snippet", "status"],
+        requestBody,
+        media: {
+          mimeType: opts.mimeType || "video/*",
+          body,
+        },
+      },
+      callOptions
+    );
+    return res.data;
   },
 };
 

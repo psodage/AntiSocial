@@ -181,11 +181,116 @@ linkedinService.getManagedEntities = async function getManagedEntities(accessTok
   return organizations;
 };
 
+const FEEDSHARE_IMAGE_RECIPE = "urn:li:digitalmediaRecipe:feedshare-image";
+const FEEDSHARE_VIDEO_RECIPE = "urn:li:digitalmediaRecipe:feedshare-video";
+
+function normalizeUploadHeaders(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[k] = Array.isArray(v) ? v[0] : v;
+  }
+  return out;
+}
+
+/**
+ * Register a synchronous upload slot for feed share (image or video).
+ * @param {string} accessToken
+ * @param {string} ownerUrn urn:li:person:{id} or urn:li:organization:{id}
+ * @param {string} recipeUrn feedshare-image or feedshare-video recipe
+ */
+linkedinService.registerFeedshareUpload = async function registerFeedshareUpload(accessToken, ownerUrn, recipeUrn) {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "X-Restli-Protocol-Version": "2.0.0",
+    "Content-Type": "application/json",
+  };
+
+  const registerUploadRequest = {
+    owner: ownerUrn,
+    recipes: [recipeUrn],
+    serviceRelationships: [
+      {
+        relationshipType: "OWNER",
+        identifier: "urn:li:userGeneratedContent",
+      },
+    ],
+    supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"],
+  };
+
+  try {
+    const response = await axios.post(
+      "https://api.linkedin.com/v2/assets?action=registerUpload",
+      { registerUploadRequest },
+      { headers }
+    );
+    const val = response.data?.value;
+    const mechanism = val?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"];
+    const uploadUrl = mechanism?.uploadUrl;
+    const uploadHeaders = normalizeUploadHeaders(mechanism?.headers);
+    const asset = val?.asset ? String(val.asset) : "";
+    if (!uploadUrl || !asset) {
+      const err = new Error("LinkedIn did not return upload instructions for this media.");
+      err.status = 502;
+      err.code = "linkedin_upload_register_failed";
+      throw err;
+    }
+    return { uploadUrl, uploadHeaders, assetUrn: asset };
+  } catch (error) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const msg =
+      (typeof data?.message === "string" && data.message) ||
+      error?.message ||
+      "Could not register media upload with LinkedIn.";
+    const err = new Error(msg);
+    err.status = status || 502;
+    err.code = status === 401 || status === 403 ? "linkedin_unauthorized" : "linkedin_upload_register_failed";
+    err.details = data;
+    throw err;
+  }
+};
+
+/**
+ * PUT raw bytes to LinkedIn-provided upload URL.
+ */
+linkedinService.uploadBinaryToLinkedIn = async function uploadBinaryToLinkedIn(uploadUrl, uploadHeaders, buffer, contentType) {
+  const merged = {
+    ...uploadHeaders,
+    "Content-Type": contentType || "application/octet-stream",
+  };
+  try {
+    await axios.put(uploadUrl, buffer, {
+      headers: merged,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      validateStatus: (s) => s >= 200 && s < 300,
+    });
+  } catch (error) {
+    const status = error?.response?.status;
+    const msg = error?.response?.data?.message || error.message || "Upload to LinkedIn failed.";
+    const err = new Error(msg);
+    err.status = status || 502;
+    err.code = "linkedin_upload_put_failed";
+    err.details = error?.response?.data;
+    throw err;
+  }
+};
+
+linkedinService.FEEDSHARE_IMAGE_RECIPE = FEEDSHARE_IMAGE_RECIPE;
+linkedinService.FEEDSHARE_VIDEO_RECIPE = FEEDSHARE_VIDEO_RECIPE;
+
 /**
  * @param {string} accessToken
- * @param {{ authorUrn: string, commentary: string, mediaType: 'TEXT' | 'LINK', linkUrl?: string }} options
+ * @param {{
+ *   authorUrn: string,
+ *   commentary: string,
+ *   mediaType: 'TEXT' | 'LINK' | 'IMAGE' | 'VIDEO',
+ *   linkUrl?: string,
+ *   mediaAssetUrn?: string,
+ * }} options
  */
-linkedinService.createUgcPost = async function createUgcPost(accessToken, { authorUrn, commentary, mediaType, linkUrl }) {
+linkedinService.createUgcPost = async function createUgcPost(accessToken, { authorUrn, commentary, mediaType, linkUrl, mediaAssetUrn }) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "X-Restli-Protocol-Version": "2.0.0",
@@ -193,24 +298,58 @@ linkedinService.createUgcPost = async function createUgcPost(accessToken, { auth
   };
 
   const trimmedCommentary = typeof commentary === "string" ? commentary.trim() : "";
-  const isLink = mediaType === "LINK" && linkUrl;
 
-  const shareContent = {
-    shareCommentary: {
-      text: trimmedCommentary || (isLink ? "Shared link" : ""),
-    },
-    shareMediaCategory: isLink ? "ARTICLE" : "NONE",
-  };
+  /** @type {Record<string, unknown>} */
+  let shareContent;
 
-  if (isLink) {
+  if (mediaType === "LINK" && linkUrl) {
     const titleText = trimmedCommentary.slice(0, 200) || "Link";
-    shareContent.media = [
-      {
-        status: "READY",
-        originalUrl: linkUrl,
-        title: { text: titleText },
+    shareContent = {
+      shareCommentary: {
+        text: trimmedCommentary || "Shared link",
       },
-    ];
+      shareMediaCategory: "ARTICLE",
+      media: [
+        {
+          status: "READY",
+          originalUrl: linkUrl,
+          title: { text: titleText },
+        },
+      ],
+    };
+  } else if (mediaType === "IMAGE" && mediaAssetUrn) {
+    shareContent = {
+      shareCommentary: {
+        text: trimmedCommentary || "Photo",
+      },
+      shareMediaCategory: "IMAGE",
+      media: [
+        {
+          status: "READY",
+          media: mediaAssetUrn,
+        },
+      ],
+    };
+  } else if (mediaType === "VIDEO" && mediaAssetUrn) {
+    shareContent = {
+      shareCommentary: {
+        text: trimmedCommentary || "Video",
+      },
+      shareMediaCategory: "VIDEO",
+      media: [
+        {
+          status: "READY",
+          media: mediaAssetUrn,
+        },
+      ],
+    };
+  } else {
+    shareContent = {
+      shareCommentary: {
+        text: trimmedCommentary,
+      },
+      shareMediaCategory: "NONE",
+    };
   }
 
   const body = {

@@ -4,6 +4,8 @@ import { useApp } from "../../context/AppContext";
 import { postToLinkedIn } from "../../services/socialApi";
 
 const MAX_CHARS = 3000;
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 function isValidHttpUrl(value) {
   if (!value || typeof value !== "string") return false;
@@ -29,10 +31,12 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
   const [organizationId, setOrganizationId] = useState("");
   const [mediaType, setMediaType] = useState("TEXT");
   const [linkUrl, setLinkUrl] = useState("");
+  const [mediaFile, setMediaFile] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [posting, setPosting] = useState(false);
   const prevOpen = useRef(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const organizations = useMemo(() => {
     const entities = Array.isArray(account?.entities) ? account.entities : [];
@@ -53,11 +57,24 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
       setContent("");
       setMediaType("TEXT");
       setLinkUrl("");
+      setMediaFile(null);
+      setFileInputKey((k) => k + 1);
       setErrors({});
       setSubmitError("");
     }
     prevOpen.current = open;
   }, [open, preset, hasOrganizations]);
+
+  const imagePreviewUrl = useMemo(() => {
+    if (!mediaFile || !mediaFile.type.startsWith("image/")) return null;
+    return URL.createObjectURL(mediaFile);
+  }, [mediaFile]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
 
   useEffect(() => {
     if (targetType === "profile") {
@@ -90,6 +107,25 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
         next.content = "Add post text, or switch to Link post and include a URL.";
       }
     }
+    if (mediaType === "IMAGE" || mediaType === "VIDEO") {
+      if (!mediaFile) {
+        next.media = `Choose a ${mediaType === "IMAGE" ? "image" : "video"} file to upload.`;
+      } else if (mediaType === "IMAGE") {
+        const okTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+        if (!okTypes.includes((mediaFile.type || "").toLowerCase())) {
+          next.media = "Image must be JPG, PNG, GIF, or WebP.";
+        } else if (mediaFile.size > MAX_IMAGE_BYTES) {
+          next.media = "Image must be 15MB or smaller.";
+        }
+      } else {
+        const vm = (mediaFile.type || "").toLowerCase();
+        if (!["video/mp4", "video/quicktime"].includes(vm)) {
+          next.media = "Video must be MP4 or MOV.";
+        } else if (mediaFile.size > MAX_VIDEO_BYTES) {
+          next.media = "Video must be 100MB or smaller.";
+        }
+      }
+    }
     if (mediaType === "LINK") {
       if (!trimmedLink) {
         next.linkUrl = "Enter a valid http(s) URL for the link post.";
@@ -100,8 +136,8 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
         next.content = `Commentary cannot exceed ${MAX_CHARS} characters.`;
       }
     }
-    if (mediaType === "TEXT" && trimmedContent.length > MAX_CHARS) {
-      next.content = `Post cannot exceed ${MAX_CHARS} characters.`;
+    if ((mediaType === "TEXT" || mediaType === "IMAGE" || mediaType === "VIDEO") && trimmedContent.length > MAX_CHARS) {
+      next.content = `Caption cannot exceed ${MAX_CHARS} characters.`;
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -118,7 +154,8 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
     overLimit ||
     organizationInvalid ||
     (mediaType === "TEXT" && !trimmedContent) ||
-    (mediaType === "LINK" && (!trimmedLink || !isValidHttpUrl(trimmedLink)));
+    (mediaType === "LINK" && (!trimmedLink || !isValidHttpUrl(trimmedLink))) ||
+    ((mediaType === "IMAGE" || mediaType === "VIDEO") && !mediaFile);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -126,18 +163,24 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
     if (!validate()) return;
     setPosting(true);
     try {
-      await postToLinkedIn({
-        content: trimmedContent,
-        targetType,
-        organizationId: targetType === "organization" ? organizationId : null,
-        mediaType,
-        mediaUrl: "",
-        linkUrl: mediaType === "LINK" ? trimmedLink : "",
-      });
+      const uploadFile = mediaType === "IMAGE" || mediaType === "VIDEO" ? mediaFile : null;
+      await postToLinkedIn(
+        {
+          content: trimmedContent,
+          targetType,
+          organizationId: targetType === "organization" ? organizationId : null,
+          mediaType,
+          mediaUrl: "",
+          linkUrl: mediaType === "LINK" ? trimmedLink : "",
+        },
+        uploadFile || undefined
+      );
       setToast({ message: "Post published successfully on LinkedIn." });
       onPublishSuccess?.();
       setContent("");
       setLinkUrl("");
+      setMediaFile(null);
+      setFileInputKey((k) => k + 1);
       setErrors({});
       onClose();
     } catch (err) {
@@ -185,7 +228,8 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
           Create post on LinkedIn
         </h2>
         <p className="mt-1 text-xs text-slate-400">
-          Text and link posts (up to {MAX_CHARS.toLocaleString()} characters). Image/video uploads are not available yet.
+          Text, link, image, and video posts. Captions up to {MAX_CHARS.toLocaleString()} characters. Images max 15MB (JPG,
+          PNG, GIF, WebP); video max 100MB (MP4, MOV).
         </p>
 
         <form className="mt-4 space-y-4" onSubmit={handleSubmit} noValidate>
@@ -269,6 +313,8 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
               onChange={(e) => {
                 const v = e.target.value;
                 setMediaType(v);
+                setMediaFile(null);
+                setFileInputKey((k) => k + 1);
                 setErrors({});
                 setSubmitError("");
               }}
@@ -276,21 +322,59 @@ export default function LinkedInCreatePostModal({ open, onClose, account, preset
             >
               <option value="TEXT">Text</option>
               <option value="LINK">Link / article</option>
-              <option value="IMAGE" disabled>
-                Image (not available yet)
-              </option>
-              <option value="VIDEO" disabled>
-                Video (not available yet)
-              </option>
+              <option value="IMAGE">Image</option>
+              <option value="VIDEO">Video</option>
             </select>
             <p className="mt-1 text-[11px] text-slate-500">
-              Image and video require LinkedIn media upload APIs; use Text or Link for now.
+              Image and video are uploaded through LinkedIn&apos;s API (register + publish). Large files may take longer.
             </p>
           </div>
 
+          {(mediaType === "IMAGE" || mediaType === "VIDEO") && (
+            <div>
+              <label htmlFor="li-media-file" className="mb-1 block text-xs font-medium text-slate-400">
+                {mediaType === "IMAGE" ? "Image file" : "Video file"}
+              </label>
+              <input
+                key={fileInputKey}
+                id="li-media-file"
+                type="file"
+                className="block w-full text-sm text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+                accept={mediaType === "IMAGE" ? "image/jpeg,image/png,image/gif,image/webp" : "video/mp4,video/quicktime"}
+                disabled={posting}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setMediaFile(f);
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.media;
+                    return next;
+                  });
+                  setSubmitError("");
+                }}
+              />
+              {errors.media ? (
+                <p className="mt-1 text-xs text-rose-400" role="alert">
+                  {errors.media}
+                </p>
+              ) : null}
+              {imagePreviewUrl ? (
+                <img
+                  src={imagePreviewUrl}
+                  alt=""
+                  className="mt-3 max-h-48 w-full rounded-lg border border-slate-600 object-contain"
+                />
+              ) : null}
+            </div>
+          )}
+
           <div>
             <label htmlFor="li-post-content" className="mb-1 block text-xs font-medium text-slate-400">
-              {mediaType === "LINK" ? "Commentary (optional)" : "Post content"}
+              {mediaType === "LINK"
+                ? "Commentary (optional)"
+                : mediaType === "IMAGE" || mediaType === "VIDEO"
+                  ? "Caption (optional)"
+                  : "Post content"}
             </label>
             <textarea
               id="li-post-content"

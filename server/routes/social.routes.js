@@ -5,7 +5,10 @@ import {
   connectMetaPlatform,
   connectSocialPlatform,
   createFacebookPost,
+  createGoogleBusinessPost,
   createLinkedInPost,
+  createTelegramPost,
+  createYouTubePost,
   createXPost,
   debugSocialEnvCheck,
   disconnectSocialPlatform,
@@ -18,6 +21,7 @@ import {
   postToInstagram,
   refreshSocialPlatform,
   socialPlatformStatus,
+  updateTelegramTargets,
 } from "../controllers/social.controller.js";
 import {
   connectThreads,
@@ -25,13 +29,20 @@ import {
   disconnectThreads,
   threadsOauthCallback,
 } from "../controllers/threads.controller.js";
-import { handleSocialPublicUpload, uploadPublicSocialMedia } from "../controllers/upload.controller.js";
+import {
+  handleLinkedInPostUpload,
+  handleSocialPublicUpload,
+  handleYouTubeVideoUpload,
+  uploadPublicSocialMedia,
+} from "../controllers/upload.controller.js";
 
 export function createSocialRoutes(requireAuth) {
   const router = Router();
 
   router.get("/debug/env-check", requireAuth, debugSocialEnvCheck);
-  router.post("/linkedin/post", requireAuth, createLinkedInPost);
+  router.post("/linkedin/post", requireAuth, handleLinkedInPostUpload, createLinkedInPost);
+  router.post("/youtube/post", requireAuth, handleYouTubeVideoUpload, createYouTubePost);
+  router.post("/google-business/post", requireAuth, createGoogleBusinessPost);
   router.post("/facebook/post", requireAuth, createFacebookPost);
   router.post("/x/post", requireAuth, createXPost);
   router.get("/accounts", requireAuth, listSocialAccounts);
@@ -47,6 +58,8 @@ export function createSocialRoutes(requireAuth) {
   router.get("/instagram/login", requireAuth, connectInstagramPlatform);
   router.get("/instagram/callback", instagramOauthCallback);
   router.post("/instagram/post", requireAuth, postToInstagram);
+  router.put("/telegram/targets", requireAuth, updateTelegramTargets);
+  router.post("/telegram/post", requireAuth, createTelegramPost);
   router.get("/:platform/connect", requireAuth, connectSocialPlatform);
   router.post("/:platform/manual-connect", requireAuth, manualConnectSocialPlatform);
   router.get("/:platform/callback", oauthCallback);

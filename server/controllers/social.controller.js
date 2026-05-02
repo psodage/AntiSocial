@@ -14,13 +14,23 @@ import {
   disconnectAccount,
   getAccountsForUser,
   getAccountStatus,
+  getGoogleBusinessAccountForToken,
+  getGoogleBusinessLocationAccount,
   getLinkedInAccountForToken,
   getLinkedInOrganizationAccount,
   getStoredAccountForProvider,
   refreshAccountToken,
+  refreshAccountTokenById,
+  replaceTelegramPostingTargets,
+  resolveTelegramPostingTargetForUser,
+  resolveYouTubeAccountForUpload,
   upsertConnectedAccount,
 } from "../services/social/socialAccount.service.js";
+import { publishTelegramPost } from "../services/social/telegramPublish.service.js";
+import SocialAccount from "../models/SocialAccount.js";
 import linkedinProvider from "../services/social/linkedin.service.js";
+import youtubeService from "../services/social/youtube.service.js";
+import { publishGoogleBusinessLocalPost } from "../services/social/googleBusinessPublish.service.js";
 import { listPostHistoryForUser, recordSuccessfulPublish } from "../services/social/postHistory.service.js";
 
 const META_PLATFORMS = new Set(["facebook"]);
@@ -732,6 +742,8 @@ export async function createXPost(req, res) {
 }
 
 const LINKEDIN_POST_MAX_LENGTH = 3000;
+const LINKEDIN_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
+const LINKEDIN_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 function isValidHttpUrl(value) {
   if (!value || typeof value !== "string") return false;
@@ -743,7 +755,48 @@ function isValidHttpUrl(value) {
   }
 }
 
-function parseLinkedInPostBody(body) {
+function assertLinkedInMediaFile(mediaTypeRaw, file) {
+  if (!file?.buffer || !Buffer.isBuffer(file.buffer)) {
+    const err = new Error(
+      'A media file is required for image and video posts. Send multipart/form-data with field "media".'
+    );
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  const mime = (file.mimetype || "").toLowerCase();
+  if (mediaTypeRaw === "IMAGE") {
+    const ok = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mime);
+    if (!ok) {
+      const err = new Error("Image must be JPG, PNG, GIF, or WebP.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (file.size > LINKEDIN_IMAGE_MAX_BYTES) {
+      const err = new Error("Image exceeds maximum size (15MB).");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  } else if (mediaTypeRaw === "VIDEO") {
+    const ok = ["video/mp4", "video/quicktime"].includes(mime);
+    if (!ok) {
+      const err = new Error("Video must be MP4 or MOV.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (file.size > LINKEDIN_VIDEO_MAX_BYTES) {
+      const err = new Error("Video exceeds maximum size (100MB).");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+}
+
+function parseLinkedInPostBody(body, file = null) {
   if (body === null || body === undefined || typeof body !== "object" || Array.isArray(body)) {
     const err = new Error("Invalid request body.");
     err.status = 400;
@@ -798,21 +851,30 @@ function parseLinkedInPostBody(body) {
     throw err;
   }
 
-  if (mediaTypeRaw === "IMAGE" || mediaTypeRaw === "VIDEO") {
-    const err = new Error("Image and video posts are not supported yet. Use text or link post, or reconnect after a future update.");
-    err.status = 400;
-    err.code = "media_not_supported";
-    throw err;
-  }
-
-  const content = typeof body.content === "string" ? body.content.trim() : "";
+  const content =
+    typeof body.content === "string" ? body.content.trim() : body.content != null ? String(body.content).trim() : "";
   const mediaUrl = typeof body.mediaUrl === "string" ? body.mediaUrl.trim() : "";
   const linkUrl = typeof body.linkUrl === "string" ? body.linkUrl.trim() : "";
 
-  if (mediaUrl) {
-    const err = new Error("Media URL upload is not supported yet for LinkedIn in this app.");
+  if (file?.buffer && mediaTypeRaw !== "IMAGE" && mediaTypeRaw !== "VIDEO") {
+    const err = new Error("Remove the media file when posting text or link content only.");
     err.status = 400;
-    err.code = "media_not_supported";
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaTypeRaw === "IMAGE" || mediaTypeRaw === "VIDEO") {
+    if (mediaUrl) {
+      const err = new Error('Remote mediaUrl is not supported. Upload a file using multipart field "media".');
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    assertLinkedInMediaFile(mediaTypeRaw, file);
+  } else if (mediaUrl) {
+    const err = new Error("Media URL is not supported for LinkedIn text or link posts.");
+    err.status = 400;
+    err.code = "validation_error";
     throw err;
   }
 
@@ -829,7 +891,7 @@ function parseLinkedInPostBody(body) {
       err.code = "validation_error";
       throw err;
     }
-  } else {
+  } else if (mediaTypeRaw === "TEXT") {
     if (linkUrl) {
       const err = new Error("linkUrl is only allowed when mediaType is LINK.");
       err.status = 400;
@@ -842,9 +904,17 @@ function parseLinkedInPostBody(body) {
       err.code = "validation_error";
       throw err;
     }
+  } else {
+    if (linkUrl) {
+      const err = new Error("linkUrl is only allowed when mediaType is LINK.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
   }
 
-  const hasPayload = Boolean(content || linkUrl || mediaUrl);
+  const hasPayload =
+    Boolean(content || linkUrl || mediaUrl) || mediaTypeRaw === "IMAGE" || mediaTypeRaw === "VIDEO";
   if (!hasPayload) {
     const err = new Error("Either content, mediaUrl, or linkUrl is required.");
     err.status = 400;
@@ -1109,10 +1179,284 @@ export async function createFacebookPost(req, res) {
   }
 }
 
+const YOUTUBE_TITLE_MAX = 100;
+const YOUTUBE_DESC_MAX = 5000;
+
+function youtubeValidationError(message, code = "validation_error") {
+  const err = new Error(message);
+  err.status = 400;
+  err.code = code;
+  return err;
+}
+
+function parseYouTubeMultipartBoolean(value) {
+  if (value === true || value === false) return { ok: true, value };
+  const s = String(value ?? "").trim().toLowerCase();
+  if (s === "true" || s === "1" || s === "yes") return { ok: true, value: true };
+  if (s === "false" || s === "0" || s === "no") return { ok: true, value: false };
+  return { ok: false, value: false };
+}
+
+function parseYouTubeVideoPostRequest(body, file) {
+  if (body === null || body === undefined || typeof body !== "object" || Array.isArray(body)) {
+    throw youtubeValidationError("Invalid request body.", "invalid_body");
+  }
+  if (!file?.buffer || !Buffer.isBuffer(file.buffer)) {
+    throw youtubeValidationError('Video file is required (multipart field "video").', "validation_error");
+  }
+  const mime = (file.mimetype || "").toLowerCase();
+  if (!mime.startsWith("video/")) {
+    throw youtubeValidationError("Video MIME type must start with video/.", "validation_error");
+  }
+
+  const channelIdRaw = body.channelId != null && body.channelId !== "" ? String(body.channelId).trim() : "";
+
+  const titleRaw = typeof body.title === "string" ? body.title : body.title != null ? String(body.title) : "";
+  const title = titleRaw.trim();
+  if (!title) {
+    throw youtubeValidationError("Title is required and cannot be only spaces.", "validation_error");
+  }
+  if (title.length > YOUTUBE_TITLE_MAX) {
+    throw youtubeValidationError(`Title cannot exceed ${YOUTUBE_TITLE_MAX} characters.`, "validation_error");
+  }
+
+  const description =
+    typeof body.description === "string"
+      ? body.description.trim()
+      : body.description != null
+        ? String(body.description).trim()
+        : "";
+  if (description.length > YOUTUBE_DESC_MAX) {
+    throw youtubeValidationError(`Description cannot exceed ${YOUTUBE_DESC_MAX} characters.`, "validation_error");
+  }
+
+  let categoryId = "22";
+  if (body.categoryId !== undefined && body.categoryId !== null && String(body.categoryId).trim() !== "") {
+    categoryId = String(body.categoryId).trim();
+    if (!/^\d{1,6}$/.test(categoryId)) {
+      throw youtubeValidationError("categoryId must be a numeric YouTube category id.", "validation_error");
+    }
+  }
+
+  const privacyRaw = typeof body.privacyStatus === "string" ? body.privacyStatus.trim().toLowerCase() : "";
+  if (!["public", "private", "unlisted"].includes(privacyRaw)) {
+    throw youtubeValidationError("privacyStatus must be public, private, or unlisted.", "validation_error");
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(body, "madeForKids")) {
+    throw youtubeValidationError("madeForKids is required.", "validation_error");
+  }
+  const mf = parseYouTubeMultipartBoolean(body.madeForKids);
+  if (!mf.ok) {
+    throw youtubeValidationError("madeForKids must be a boolean.", "validation_error");
+  }
+
+  const tagsStr = typeof body.tags === "string" ? body.tags : body.tags != null ? String(body.tags) : "";
+  const tags = tagsStr
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 30)
+    .map((t) => (t.length > 30 ? t.slice(0, 30) : t));
+
+  return {
+    channelIdRaw,
+    title,
+    description,
+    categoryId,
+    privacyStatus: privacyRaw,
+    madeForKids: mf.value,
+    tags,
+    mimeType: mime,
+  };
+}
+
+function mapYouTubeClientError(err) {
+  const apiMsg = err?.response?.data?.error?.message;
+  const message = typeof apiMsg === "string" && apiMsg ? apiMsg : err?.message || "YouTube upload failed.";
+  const status = Number(err?.response?.status);
+  const httpStatus = Number.isFinite(status) && status >= 400 && status < 600 ? status : 502;
+  return { message, httpStatus, code: "youtube_upload_failed" };
+}
+
+function isYouTubeUnauthorized(err) {
+  const s = Number(err?.response?.status);
+  return s === 401 || s === 403;
+}
+
+export async function createYouTubePost(req, res) {
+  let parsed;
+  try {
+    parsed = parseYouTubeVideoPostRequest(req.body, req.file || null);
+  } catch (validationError) {
+    return errorResponse(
+      res,
+      validationError.message,
+      validationError.status || 400,
+      validationError.code || "validation_error"
+    );
+  }
+
+  const userId = new ObjectId(req.auth.userId);
+  const reconnectMessage = "YouTube is not connected or the token expired. Please reconnect your YouTube channel.";
+
+  try {
+    const resolved = await resolveYouTubeAccountForUpload(userId, parsed.channelIdRaw);
+    if (resolved.error === "not_connected") {
+      return errorResponse(res, reconnectMessage, 401, "not_connected");
+    }
+    if (resolved.error === "channel_required") {
+      return errorResponse(
+        res,
+        "Multiple YouTube channels are connected. Select which channel to upload to.",
+        400,
+        "channel_required"
+      );
+    }
+    if (resolved.error === "channel_not_allowed") {
+      return errorResponse(
+        res,
+        "You cannot upload to a YouTube channel that is not connected to your account.",
+        403,
+        "channel_not_allowed"
+      );
+    }
+    if (resolved.error === "channel_incomplete") {
+      return errorResponse(
+        res,
+        "Your YouTube connection is missing a channel id. Reconnect YouTube and try again.",
+        400,
+        "channel_incomplete"
+      );
+    }
+
+    let accountDoc = resolved.account;
+    let accessToken = accountDoc.getDecryptedAccessToken?.();
+
+    const ensureFreshAccess = async () => {
+      const tokenMissing = !accessToken;
+      const expired = accountDoc.expiresAt && new Date(accountDoc.expiresAt).getTime() <= Date.now();
+      if (!tokenMissing && !expired) return;
+      const refreshed = await youtubeService.refreshTokenIfNeeded(
+        tokenMissing
+          ? {
+              expiresAt: new Date(0),
+              getDecryptedRefreshToken: () => accountDoc.getDecryptedRefreshToken?.(),
+            }
+          : accountDoc
+      );
+      if (refreshed) {
+        await refreshAccountTokenById(accountDoc._id, refreshed);
+        const reloaded = await SocialAccount.findById(accountDoc._id);
+        if (reloaded) accountDoc = reloaded;
+        accessToken = accountDoc.getDecryptedAccessToken?.();
+      }
+    };
+
+    await ensureFreshAccess();
+
+    if (!accessToken) {
+      return errorResponse(res, reconnectMessage, 401, "no_token");
+    }
+
+    const channelTitle = accountDoc.accountName || accountDoc.metadata?.youtubeChannelTitle || "";
+    const channelId = resolved.resolvedChannelId;
+
+    const runUpload = async (token) =>
+      youtubeService.uploadVideo(token, {
+        buffer: req.file.buffer,
+        mimeType: parsed.mimeType,
+        title: parsed.title,
+        description: parsed.description,
+        tags: parsed.tags,
+        categoryId: parsed.categoryId,
+        privacyStatus: parsed.privacyStatus,
+        madeForKids: parsed.madeForKids,
+      });
+
+    let data;
+    try {
+      data = await runUpload(accessToken);
+    } catch (uploadErr) {
+      if (isYouTubeUnauthorized(uploadErr) && accountDoc.getDecryptedRefreshToken?.()) {
+        try {
+          const refreshed = await youtubeService.refreshTokenIfNeeded({
+            expiresAt: new Date(0),
+            getDecryptedRefreshToken: () => accountDoc.getDecryptedRefreshToken(),
+          });
+          if (refreshed?.accessToken) {
+            await refreshAccountTokenById(accountDoc._id, refreshed);
+            const reloaded = await SocialAccount.findById(accountDoc._id);
+            if (reloaded) accountDoc = reloaded;
+            accessToken = accountDoc.getDecryptedAccessToken?.();
+            if (accessToken) {
+              try {
+                data = await runUpload(accessToken);
+              } catch (retryUploadErr) {
+                const mapped = mapYouTubeClientError(retryUploadErr);
+                const clientMsg = isYouTubeUnauthorized(retryUploadErr) ? reconnectMessage : mapped.message;
+                return errorResponse(res, clientMsg, mapped.httpStatus, mapped.code);
+              }
+            } else {
+              return errorResponse(res, reconnectMessage, 401, "no_token");
+            }
+          } else {
+            return errorResponse(res, reconnectMessage, 401, "token_refresh_failed");
+          }
+        } catch (refreshErr) {
+          console.error("[youtube:post:refresh-retry:error]", { message: refreshErr?.message });
+          const mapped = mapYouTubeClientError(uploadErr);
+          const clientMsg = isYouTubeUnauthorized(uploadErr) ? reconnectMessage : mapped.message;
+          return errorResponse(res, clientMsg, mapped.httpStatus, mapped.code);
+        }
+      } else {
+        const mapped = mapYouTubeClientError(uploadErr);
+        const clientMsg = isYouTubeUnauthorized(uploadErr) ? reconnectMessage : mapped.message;
+        return errorResponse(res, clientMsg, mapped.httpStatus, mapped.code);
+      }
+    }
+
+    const videoId = data?.id ? String(data.id) : "";
+    if (!videoId) {
+      return errorResponse(res, "YouTube did not return a video id.", 502, "youtube_no_video_id");
+    }
+
+    const videoUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+    const content = [parsed.title, parsed.description].filter(Boolean).join("\n\n");
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "youtube",
+      platformAccountId: channelId,
+      platformAccountName: channelTitle || channelId,
+      targetType: "channel",
+      targetId: channelId,
+      targetName: channelTitle || channelId,
+      content,
+      mediaType: "VIDEO",
+      mediaUrl: videoUrl,
+      externalPostId: videoId,
+      externalPostUrl: videoUrl,
+      apiSnapshot: { id: videoId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Video uploaded successfully on YouTube",
+      postId: videoId,
+      videoUrl,
+      data: {},
+    });
+  } catch (error) {
+    console.error("[youtube:post:error]", { message: error?.message });
+    return errorResponse(res, error.message || "Could not upload video to YouTube.", 500, error.code || "youtube_post_error");
+  }
+}
+
 export async function createLinkedInPost(req, res) {
   let parsed;
   try {
-    parsed = parseLinkedInPostBody(req.body);
+    parsed = parseLinkedInPostBody(req.body, req.file || null);
   } catch (validationError) {
     return errorResponse(res, validationError.message, validationError.status || 400, validationError.code || "validation_error");
   }
@@ -1171,16 +1515,58 @@ export async function createLinkedInPost(req, res) {
     }
 
     const commentary = parsed.content;
-    const apiMediaType = parsed.mediaType === "LINK" ? "LINK" : "TEXT";
+    const apiMediaType = parsed.mediaType;
     const linkUrl = parsed.linkUrl || "";
+
+    let mediaAssetUrn = "";
+    if (parsed.mediaType === "IMAGE" || parsed.mediaType === "VIDEO") {
+      const recipe =
+        parsed.mediaType === "IMAGE"
+          ? linkedinProvider.FEEDSHARE_IMAGE_RECIPE
+          : linkedinProvider.FEEDSHARE_VIDEO_RECIPE;
+      try {
+        const registered = await linkedinProvider.registerFeedshareUpload(accessToken, authorUrn, recipe);
+        await linkedinProvider.uploadBinaryToLinkedIn(
+          registered.uploadUrl,
+          registered.uploadHeaders,
+          req.file.buffer,
+          req.file.mimetype
+        );
+        mediaAssetUrn = registered.assetUrn;
+      } catch (uploadErr) {
+        console.error("[linkedin:post:upload:error]", {
+          message: uploadErr?.message,
+          code: uploadErr?.code,
+          status: uploadErr?.status,
+        });
+        const clientMessage =
+          uploadErr?.status === 401 || uploadErr?.status === 403 || uploadErr?.code === "linkedin_unauthorized"
+            ? reconnectMessage
+            : uploadErr.message || "Could not upload media to LinkedIn.";
+        return errorResponse(
+          res,
+          clientMessage,
+          uploadErr.status >= 400 && uploadErr.status < 600 ? uploadErr.status : 502,
+          uploadErr.code || "linkedin_upload_failed"
+        );
+      }
+    }
 
     let result;
     try {
       result = await linkedinProvider.createUgcPost(accessToken, {
         authorUrn,
         commentary,
-        mediaType: apiMediaType,
+        mediaType:
+          apiMediaType === "LINK"
+            ? "LINK"
+            : apiMediaType === "IMAGE"
+              ? "IMAGE"
+              : apiMediaType === "VIDEO"
+                ? "VIDEO"
+                : "TEXT",
         linkUrl: apiMediaType === "LINK" ? linkUrl : undefined,
+        mediaAssetUrn: mediaAssetUrn || undefined,
       });
     } catch (apiError) {
       console.error("[linkedin:post:api:error]", {
@@ -1202,7 +1588,12 @@ export async function createLinkedInPost(req, res) {
 
     const postId = result.id || "";
     const historyContent =
-      parsed.mediaType === "LINK" ? [parsed.content, parsed.linkUrl].filter(Boolean).join("\n") || parsed.linkUrl : parsed.content;
+      parsed.mediaType === "LINK"
+        ? [parsed.content, parsed.linkUrl].filter(Boolean).join("\n") || parsed.linkUrl
+        : parsed.mediaType === "IMAGE" || parsed.mediaType === "VIDEO"
+          ? [parsed.content, req.file?.originalname].filter(Boolean).join("\n") ||
+            (parsed.mediaType === "IMAGE" ? "Image post" : "Video post")
+          : parsed.content;
 
     await recordSuccessfulPublish({
       userId,
@@ -1229,6 +1620,707 @@ export async function createLinkedInPost(req, res) {
   } catch (error) {
     console.error("[linkedin:post:error]", { message: error?.message });
     return errorResponse(res, error.message || "Could not publish post on LinkedIn.", 500, error.code || "linkedin_post_error");
+  }
+}
+
+const GB_RECONNECT_MESSAGE =
+  "Google Business Profile is not connected or token expired. Please reconnect your Google account.";
+const GB_SUMMARY_MAX = 1500;
+const GB_SAFE_RESOURCE_ID = /^[a-zA-Z0-9_-]{1,256}$/;
+const GB_CTA_TYPES = new Set(["BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "CALL"]);
+
+function parseIsoDateParts(value, label) {
+  if (value === undefined || value === null || value === "") {
+    const err = new Error(`${label} is required.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  const s = typeof value === "string" ? value.trim() : String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const err = new Error(`${label} must be a date in YYYY-MM-DD format.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  const [ys, ms, ds] = s.split("-");
+  const year = Number(ys);
+  const month = Number(ms);
+  const day = Number(ds);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    const err = new Error(`${label} is not a valid calendar date.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  return { year, month, day };
+}
+
+function calendarDateCompare(a, b) {
+  const ta = Date.UTC(a.year, a.month - 1, a.day);
+  const tb = Date.UTC(b.year, b.month - 1, b.day);
+  if (ta < tb) return -1;
+  if (ta > tb) return 1;
+  return 0;
+}
+
+function parseGoogleBusinessPostBody(body) {
+  if (body === null || body === undefined || typeof body !== "object" || Array.isArray(body)) {
+    const err = new Error("Invalid request body.");
+    err.status = 400;
+    err.code = "invalid_body";
+    throw err;
+  }
+
+  const rejectPrototypePollution = () => {
+    const err = new Error("Invalid request payload.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  };
+  if ("__proto__" in body || "constructor" in body) rejectPrototypePollution();
+
+  const trimStr = (v) => (typeof v === "string" ? v.trim() : v != null ? String(v).trim() : "");
+
+  const locationId = trimStr(body.locationId);
+  const accountId = trimStr(body.accountId);
+  const postTypeRaw = trimStr(body.postType).toUpperCase();
+
+  if (!locationId) {
+    const err = new Error("locationId is required.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (!accountId) {
+    const err = new Error("accountId is required.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (!GB_SAFE_RESOURCE_ID.test(locationId) || !GB_SAFE_RESOURCE_ID.test(accountId)) {
+    const err = new Error("accountId and locationId contain invalid characters.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (!postTypeRaw) {
+    const err = new Error("postType is required.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (!["STANDARD", "EVENT", "OFFER"].includes(postTypeRaw)) {
+    const err = new Error("postType must be one of: STANDARD, EVENT, OFFER.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const summary =
+    body.summary === undefined || body.summary === null ? "" : typeof body.summary === "string" ? body.summary.trim() : String(body.summary).trim();
+
+  if (typeof body.summary !== "string" && body.summary != null) {
+    const err = new Error("summary must be a string.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (postTypeRaw === "STANDARD") {
+    if (!summary.replace(/\s/g, "").length) {
+      const err = new Error("summary is required for STANDARD posts and cannot be only spaces.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  if (summary.length > GB_SUMMARY_MAX) {
+    const err = new Error(`summary cannot exceed ${GB_SUMMARY_MAX} characters.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const mediaUrl = trimStr(body.mediaUrl);
+  if (mediaUrl && !isValidHttpUrl(mediaUrl)) {
+    const err = new Error("mediaUrl must be a valid public http(s) URL.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const ctaTypeRaw = trimStr(body.ctaType).toUpperCase();
+  const ctaUrl = trimStr(body.ctaUrl);
+
+  if (ctaTypeRaw) {
+    if (!GB_CTA_TYPES.has(ctaTypeRaw)) {
+      const err = new Error(
+        "ctaType must be one of: BOOK, ORDER, SHOP, LEARN_MORE, SIGN_UP, CALL."
+      );
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (ctaTypeRaw !== "CALL") {
+      if (!ctaUrl) {
+        const err = new Error("ctaUrl is required when ctaType is provided and is not CALL.");
+        err.status = 400;
+        err.code = "validation_error";
+        throw err;
+      }
+      if (!isValidHttpUrl(ctaUrl)) {
+        const err = new Error("ctaUrl must be a valid http(s) URL.");
+        err.status = 400;
+        err.code = "validation_error";
+        throw err;
+      }
+    }
+  } else if (ctaUrl) {
+    const err = new Error("ctaUrl cannot be set without ctaType.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const eventTitle = trimStr(body.eventTitle);
+  const offerTitle = trimStr(body.offerTitle);
+  const couponCode = trimStr(body.couponCode);
+  const redeemUrl = trimStr(body.redeemUrl);
+  const termsConditions = trimStr(body.termsConditions);
+
+  if (redeemUrl && !isValidHttpUrl(redeemUrl)) {
+    const err = new Error("redeemUrl must be a valid http(s) URL.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  let startDateParts = null;
+  let endDateParts = null;
+
+  if (postTypeRaw === "EVENT") {
+    if (!eventTitle.replace(/\s/g, "").length) {
+      const err = new Error("eventTitle is required for EVENT posts.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    startDateParts = parseIsoDateParts(body.startDate, "startDate");
+    endDateParts = parseIsoDateParts(body.endDate, "endDate");
+  } else if (postTypeRaw === "OFFER") {
+    if (!offerTitle.replace(/\s/g, "").length) {
+      const err = new Error("offerTitle is required for OFFER posts.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    startDateParts = parseIsoDateParts(body.startDate, "startDate");
+    endDateParts = parseIsoDateParts(body.endDate, "endDate");
+  }
+
+  if (startDateParts && endDateParts) {
+    if (calendarDateCompare(endDateParts, startDateParts) < 0) {
+      const err = new Error("endDate cannot be before startDate.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  const inferMediaFormat = () => {
+    if (!mediaUrl) return null;
+    const pathOnly = mediaUrl.split("?")[0].toLowerCase();
+    if (
+      pathOnly.endsWith(".mp4") ||
+      pathOnly.endsWith(".mov") ||
+      pathOnly.endsWith(".webm") ||
+      pathOnly.endsWith(".m4v")
+    ) {
+      return "VIDEO";
+    }
+    return "PHOTO";
+  };
+
+  return {
+    locationId,
+    accountId,
+    postType: postTypeRaw,
+    summary,
+    mediaUrl,
+    mediaFormat: inferMediaFormat(),
+    ctaType: ctaTypeRaw || "",
+    ctaUrl: ctaTypeRaw === "CALL" ? "" : ctaUrl,
+    eventTitle,
+    offerTitle,
+    startDateParts,
+    endDateParts,
+    couponCode,
+    redeemUrl,
+    termsConditions,
+  };
+}
+
+export async function createGoogleBusinessPost(req, res) {
+  let parsed;
+  try {
+    parsed = parseGoogleBusinessPostBody(req.body);
+  } catch (validationError) {
+    return errorResponse(res, validationError.message, validationError.status || 400, validationError.code || "validation_error");
+  }
+
+  const userId = new ObjectId(req.auth.userId);
+
+  try {
+    const tokenAccount = await getGoogleBusinessAccountForToken(userId);
+    if (!tokenAccount || !tokenAccount.isConnected) {
+      return errorResponse(res, GB_RECONNECT_MESSAGE, 401, "not_connected");
+    }
+
+    let accessToken = tokenAccount.getDecryptedAccessToken();
+    if (!accessToken) {
+      return errorResponse(res, GB_RECONNECT_MESSAGE, 401, "no_token");
+    }
+
+    const { provider } = resolvePlatform("googleBusiness");
+
+    const tokenExpired = tokenAccount.expiresAt && new Date(tokenAccount.expiresAt).getTime() <= Date.now();
+    if (tokenExpired) {
+      try {
+        const refreshed = await provider.refreshTokenIfNeeded(tokenAccount);
+        if (refreshed?.accessToken) {
+          await refreshAccountToken(userId, "googleBusiness", refreshed);
+          accessToken = refreshed.accessToken;
+        }
+      } catch (refreshError) {
+        console.error("[googleBusiness:post:refresh:error]", { message: refreshError?.message });
+        return errorResponse(
+          res,
+          GB_RECONNECT_MESSAGE,
+          401,
+          refreshError?.code || "token_refresh_failed"
+        );
+      }
+    }
+
+    if (!accessToken) {
+      return errorResponse(res, GB_RECONNECT_MESSAGE, 401, "no_token");
+    }
+
+    const locationAccount = await getGoogleBusinessLocationAccount(userId, parsed.locationId);
+    if (!locationAccount || !locationAccount.isConnected) {
+      return errorResponse(
+        res,
+        "You do not have access to this Google Business Profile location, or it is not connected.",
+        403,
+        "location_not_allowed"
+      );
+    }
+
+    const meta = locationAccount.metadata || {};
+    const managed = meta.managedEntity || {};
+    const storedAccountId = String(meta.googleBusinessAccountId || managed.googleBusinessAccountId || "").trim();
+    if (!storedAccountId || storedAccountId !== parsed.accountId) {
+      return errorResponse(
+        res,
+        "You do not have access to post to this location with the selected account.",
+        403,
+        "location_account_mismatch"
+      );
+    }
+
+    let result;
+    let retriedUnauthorized = false;
+    for (;;) {
+      try {
+        result = await publishGoogleBusinessLocalPost({
+          accessToken,
+          accountId: parsed.accountId,
+          locationId: parsed.locationId,
+          parsed,
+        });
+        break;
+      } catch (apiError) {
+        const status = apiError.status || apiError.response?.status;
+        const canRetry =
+          status === 401 &&
+          !retriedUnauthorized &&
+          typeof tokenAccount.getDecryptedRefreshToken === "function" &&
+          tokenAccount.getDecryptedRefreshToken();
+
+        if (canRetry) {
+          retriedUnauthorized = true;
+          try {
+            const refreshed = await provider.refreshTokenIfNeeded({
+              expiresAt: new Date(0),
+              getDecryptedRefreshToken: () => tokenAccount.getDecryptedRefreshToken(),
+              getDecryptedAccessToken: () => tokenAccount.getDecryptedAccessToken(),
+            });
+            if (refreshed?.accessToken) {
+              await refreshAccountToken(userId, "googleBusiness", refreshed);
+              accessToken = refreshed.accessToken;
+              continue;
+            }
+          } catch (retryRefreshError) {
+            console.error("[googleBusiness:post:retry-refresh:error]", { message: retryRefreshError?.message });
+          }
+        }
+
+        console.error("[googleBusiness:post:api:error]", {
+          message: apiError?.message,
+          code: apiError?.code,
+          status,
+        });
+
+        const authLike = status === 401 || status === 403;
+        const clientMessage = authLike ? GB_RECONNECT_MESSAGE : apiError.message || "Could not publish post on Google Business Profile.";
+        return errorResponse(
+          res,
+          clientMessage,
+          status >= 400 && status < 600 ? status : 502,
+          apiError.code || "google_business_post_failed"
+        );
+      }
+    }
+
+    const postId = result.postId ? String(result.postId) : "";
+    const rawName = typeof result.raw?.name === "string" ? result.raw.name : "";
+    const raw = result.raw && typeof result.raw === "object" ? result.raw : {};
+    const safeClientPayload = {};
+    if (typeof raw.name === "string") safeClientPayload.name = raw.name;
+    if (raw.createTime != null) safeClientPayload.createTime = raw.createTime;
+    if (raw.topicType != null) safeClientPayload.topicType = raw.topicType;
+
+    const historySummary =
+      parsed.postType === "OFFER"
+        ? [parsed.offerTitle, parsed.summary].filter(Boolean).join("\n")
+        : parsed.postType === "EVENT"
+          ? [parsed.eventTitle, parsed.summary].filter(Boolean).join("\n")
+          : parsed.summary;
+
+    const historyMediaType = parsed.mediaUrl ? (parsed.mediaFormat === "VIDEO" ? "VIDEO" : "IMAGE") : "TEXT";
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "googleBusiness",
+      platformAccountId: String(tokenAccount.platformUserId || ""),
+      platformAccountName: tokenAccount.accountName || tokenAccount.username || "",
+      targetType: "location",
+      targetId: parsed.locationId,
+      targetName: locationAccount.accountName || parsed.locationId,
+      content: historySummary || parsed.summary,
+      mediaType: historyMediaType,
+      mediaUrl: parsed.mediaUrl || "",
+      linkUrl: parsed.ctaUrl || parsed.redeemUrl || "",
+      externalPostId: postId,
+      externalPostUrl: "",
+      apiSnapshot: rawName ? { name: rawName } : { id: postId },
+    });
+
+    return successResponse(res, { postId, data: safeClientPayload }, "Post published successfully on Google Business Profile");
+  } catch (error) {
+    console.error("[googleBusiness:post:error]", { message: error?.message });
+    return errorResponse(
+      res,
+      error.message || "Could not publish post on Google Business Profile.",
+      500,
+      error.code || "google_business_post_error"
+    );
+  }
+}
+
+const TELEGRAM_MESSAGE_MAX = 4096;
+const TELEGRAM_MEDIA_URL_MAX = 2048;
+
+function parseTelegramPostBody(body) {
+  if (body === null || body === undefined || typeof body !== "object" || Array.isArray(body)) {
+    const err = new Error("Invalid request body.");
+    err.status = 400;
+    err.code = "invalid_body";
+    throw err;
+  }
+  if ("__proto__" in body || "constructor" in body) {
+    const err = new Error("Invalid request payload.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const chatId =
+    typeof body.chatId === "string" ? body.chatId.trim() : body.chatId != null ? String(body.chatId).trim() : "";
+  if (!chatId) {
+    const err = new Error("chatId is required.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  const mediaTypeRaw = typeof body.mediaType === "string" ? body.mediaType.trim().toUpperCase() : "";
+  if (!["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LINK"].includes(mediaTypeRaw)) {
+    const err = new Error("mediaType is required and must be one of: TEXT, IMAGE, VIDEO, DOCUMENT, LINK.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (typeof body.message !== "string" && body.message != null) {
+    const err = new Error("message must be a string if provided.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (typeof body.mediaUrl !== "string" && body.mediaUrl != null) {
+    const err = new Error("mediaUrl must be a string if provided.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (typeof body.linkUrl !== "string" && body.linkUrl != null) {
+    const err = new Error("linkUrl must be a string if provided.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (typeof body.buttonText !== "string" && body.buttonText != null) {
+    const err = new Error("buttonText must be a string if provided.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (typeof body.buttonUrl !== "string" && body.buttonUrl != null) {
+    const err = new Error("buttonUrl must be a string if provided.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  let message = typeof body.message === "string" ? body.message.trim() : "";
+  const mediaUrl = typeof body.mediaUrl === "string" ? body.mediaUrl.trim() : "";
+  let linkUrl = typeof body.linkUrl === "string" ? body.linkUrl.trim() : "";
+  const buttonText = typeof body.buttonText === "string" ? body.buttonText.trim() : "";
+  const buttonUrl = typeof body.buttonUrl === "string" ? body.buttonUrl.trim() : "";
+
+  if (Object.prototype.hasOwnProperty.call(body, "message") && typeof body.message === "string" && body.message.length > 0 && !message.length) {
+    const err = new Error("message cannot be only spaces.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (message.length > TELEGRAM_MESSAGE_MAX) {
+    const err = new Error(`message cannot exceed ${TELEGRAM_MESSAGE_MAX} characters.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (buttonText && !buttonUrl) {
+    const err = new Error("buttonUrl is required when buttonText is set.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (buttonUrl && !buttonText) {
+    const err = new Error("buttonText is required when buttonUrl is set.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (buttonUrl && !isValidHttpUrl(buttonUrl)) {
+    const err = new Error("buttonUrl must be a valid http(s) URL.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaTypeRaw === "TEXT") {
+    if (mediaUrl) {
+      const err = new Error("mediaUrl is not used when mediaType is TEXT.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  if (mediaTypeRaw === "LINK") {
+    if (mediaUrl) {
+      const err = new Error("mediaUrl is not used when mediaType is LINK.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!linkUrl) {
+      const err = new Error("linkUrl is required for LINK posts.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!isValidHttpUrl(linkUrl)) {
+      const err = new Error("linkUrl must be a valid http(s) URL.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  } else if (linkUrl && mediaTypeRaw !== "TEXT") {
+    const err = new Error("linkUrl is only allowed for TEXT or LINK posts.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaTypeRaw === "IMAGE" || mediaTypeRaw === "VIDEO" || mediaTypeRaw === "DOCUMENT") {
+    if (linkUrl) {
+      const err = new Error("linkUrl must be empty for image, video, or document posts.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!mediaUrl) {
+      const err = new Error(`mediaUrl is required for ${mediaTypeRaw.toLowerCase()} posts.`);
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (mediaUrl.length > TELEGRAM_MEDIA_URL_MAX || !isValidHttpUrl(mediaUrl)) {
+      const err = new Error("mediaUrl must be a valid public http(s) URL.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+  }
+
+  const hasPayload = Boolean(message || mediaUrl || linkUrl);
+  if (!hasPayload) {
+    const err = new Error("Either message, mediaUrl, or linkUrl is required.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  if (mediaTypeRaw === "TEXT" && !message && !linkUrl) {
+    const err = new Error("TEXT posts need message text and/or linkUrl.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  return {
+    chatId,
+    mediaType: mediaTypeRaw,
+    message,
+    mediaUrl: ["IMAGE", "VIDEO", "DOCUMENT"].includes(mediaTypeRaw) ? mediaUrl : "",
+    linkUrl: mediaTypeRaw === "LINK" ? linkUrl : mediaTypeRaw === "TEXT" ? linkUrl : "",
+    buttonText,
+    buttonUrl,
+  };
+}
+
+export async function updateTelegramTargets(req, res) {
+  try {
+    const userId = new ObjectId(req.auth.userId);
+    const account = await replaceTelegramPostingTargets(userId, req.body?.targets);
+    return successResponse(res, { account }, "Telegram posting targets saved.");
+  } catch (error) {
+    const status = error?.status >= 400 && error?.status < 600 ? error.status : 400;
+    return errorResponse(res, error.message || "Unable to save Telegram targets.", status, error.code || "validation_error");
+  }
+}
+
+export async function createTelegramPost(req, res) {
+  let parsed;
+  try {
+    parsed = parseTelegramPostBody(req.body);
+  } catch (validationError) {
+    return errorResponse(res, validationError.message, validationError.status || 400, validationError.code || "validation_error");
+  }
+
+  const userId = new ObjectId(req.auth.userId);
+  const reconnectMessage = "Telegram is not connected. Connect your bot from Connected Platforms first.";
+
+  try {
+    const targetMeta = await resolveTelegramPostingTargetForUser(userId, parsed.chatId);
+    if (!targetMeta) {
+      return errorResponse(
+        res,
+        "This chat is not in your saved Telegram targets. Add the channel or group under Telegram settings first.",
+        403,
+        "telegram_target_not_allowed"
+      );
+    }
+
+    const account = await getStoredAccountForProvider(userId, "telegram");
+    if (!account || !account.isConnected) {
+      return errorResponse(res, reconnectMessage, 401, "not_connected");
+    }
+
+    const botToken = account.getDecryptedAccessToken?.();
+    if (!botToken) {
+      return errorResponse(res, reconnectMessage, 401, "no_token");
+    }
+
+    let result;
+    try {
+      result = await publishTelegramPost({
+        botToken,
+        chatId: parsed.chatId,
+        message: parsed.message,
+        mediaType: parsed.mediaType,
+        mediaUrl: parsed.mediaUrl,
+        linkUrl: parsed.linkUrl,
+        buttonText: parsed.buttonText,
+        buttonUrl: parsed.buttonUrl,
+      });
+    } catch (apiError) {
+      console.error("[telegram:post:api:error]", {
+        message: apiError?.message,
+        code: apiError?.code,
+        status: apiError?.status,
+      });
+      const status =
+        apiError?.status >= 400 && apiError?.status < 600 ? apiError.status : 502;
+      return errorResponse(res, apiError.message || "Could not publish to Telegram.", status, apiError.code || "telegram_post_failed");
+    }
+
+    const historyContent =
+      parsed.mediaType === "LINK"
+        ? [parsed.message, parsed.linkUrl].filter(Boolean).join("\n") || parsed.linkUrl
+        : parsed.message || (parsed.mediaUrl ? "Media post" : "");
+
+    await recordSuccessfulPublish({
+      userId,
+      platform: "telegram",
+      platformAccountId: String(account.platformUserId || ""),
+      platformAccountName: account.accountName || account.username || "Telegram Bot",
+      targetType: targetMeta.chatType || "channel",
+      targetId: parsed.chatId,
+      targetName: targetMeta.chatTitle || parsed.chatId,
+      content: historyContent,
+      mediaType: parsed.mediaType,
+      mediaUrl: parsed.mediaUrl || "",
+      linkUrl: parsed.linkUrl || "",
+      externalPostId: result.messageId,
+      externalPostUrl: "",
+      apiSnapshot: result.safePayload,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Post published successfully on Telegram",
+      postId: result.messageId,
+      data: {},
+      error: null,
+    });
+  } catch (error) {
+    console.error("[telegram:post:error]", { message: error?.message });
+    return errorResponse(res, error.message || "Could not publish to Telegram.", 500, error.code || "telegram_post_error");
   }
 }
 

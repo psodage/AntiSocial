@@ -10,6 +10,8 @@
  * @property {string} path
  * @property {string} [facebookPageId]
  * @property {{ targetType: 'profile' | 'organization', organizationId: string | null } | null} [linkedinAction]
+ * @property {{ accountId: string, locationId: string } | null} [googleBusinessPreset]
+ * @property {string} [telegramChatId]
  */
 
 /**
@@ -273,12 +275,45 @@ export function buildPostingTargetsConfig(platformKey, account) {
   }
 
   if (platformKey === "googleBusiness") {
-    return single(
-      "Available posting targets",
-      "Your connected Google account with Business Profile access. Pick a verified location in the composer when posting.",
-      "Google Business Profile",
-      "organization"
-    );
+    const locationRows = entities
+      .filter((e) => e.entityType === "location" && e.entityId)
+      .sort((a, b) => entityDisplayName(a).localeCompare(entityDisplayName(b)));
+
+    /** @type {PostingTargetCard[]} */
+    const cards = [];
+    for (const loc of locationRows) {
+      const managed = loc.metadata?.managedEntity || {};
+      const accountId = String(managed.googleBusinessAccountId || loc.metadata?.googleBusinessAccountId || "").trim();
+      const locationId = String(loc.entityId || "").trim();
+      if (!accountId || !locationId) continue;
+      cards.push({
+        key: `gbl-${accountId}-${locationId}`,
+        badge: "page",
+        title: entityDisplayName(loc),
+        sublabel: `Google Business · Account ${accountId} · Location ${locationId}`,
+        imageUrl: loc.profileImage || placeholderImage("googleBusiness"),
+        path: `/connected-platforms/googleBusiness`,
+        googleBusinessPreset: { accountId, locationId },
+      });
+    }
+
+    const emptyBanner =
+      cards.length === 0
+        ? {
+            tone: "neutral",
+            text: "No Google Business Profile location connected. Please connect a location first.",
+          }
+        : null;
+
+    return {
+      title: "Business locations",
+      description:
+        "Publish local posts to a verified Business Profile location you manage. Pick a location below or choose it in the composer.",
+      primaryCtaLabel: "Create post",
+      primaryCtaPath: `/connected-platforms/googleBusiness`,
+      cards,
+      emptyBanner,
+    };
   }
 
   return null;

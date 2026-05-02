@@ -9,6 +9,8 @@ import FacebookCreatePostModal from "../components/social/FacebookCreatePostModa
 import LinkedInCreatePostModal from "../components/social/LinkedInCreatePostModal";
 import ThreadsCreatePostModal from "../components/social/ThreadsCreatePostModal";
 import InstagramCreatePostModal from "../components/social/InstagramCreatePostModal";
+import YouTubeCreatePostModal from "../components/social/YouTubeCreatePostModal";
+import GoogleBusinessCreatePostModal from "../components/social/GoogleBusinessCreatePostModal";
 import PlatformDetailTabBar from "../components/social/PlatformDetailTabBar";
 import PostHistoryPanel from "../components/social/PostHistoryPanel";
 
@@ -73,6 +75,7 @@ export default function ConnectedPlatformDetailPage() {
     setFacebookPostModalOpen(true);
   };
 
+  const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
   const [linkedinPreset, setLinkedinPreset] = useState({ targetType: "profile", organizationId: null });
   const [detailTab, setDetailTab] = useState("overview");
@@ -85,6 +88,15 @@ export default function ConnectedPlatformDetailPage() {
         : { targetType: "profile", organizationId: null }
     );
     setLinkedinModalOpen(true);
+  };
+
+  const [googleBusinessModalOpen, setGoogleBusinessModalOpen] = useState(false);
+  const [googleBusinessPreset, setGoogleBusinessPreset] = useState(null);
+  const openGoogleBusinessComposer = (preset) => {
+    setGoogleBusinessPreset(
+      preset && typeof preset === "object" && preset.accountId && preset.locationId ? preset : null
+    );
+    setGoogleBusinessModalOpen(true);
   };
 
   const account = useMemo(
@@ -212,7 +224,12 @@ export default function ConnectedPlatformDetailPage() {
               <h2 className="text-sm font-semibold text-white">{postingTargets.title}</h2>
               <p className="mt-1 text-xs text-slate-400">{postingTargets.description}</p>
             </div>
-            {postingTargets.primaryCtaPath || platformKey === "linkedin" || platformKey === "facebook" || platformKey === "instagram" ? (
+            {postingTargets.primaryCtaPath ||
+            platformKey === "linkedin" ||
+            platformKey === "facebook" ||
+            platformKey === "instagram" ||
+            platformKey === "googleBusiness" ||
+            platformKey === "youtube" ? (
               <button
                 type="button"
                 onClick={() => {
@@ -220,6 +237,8 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "linkedin") openLinkedInComposer({ targetType: "profile", organizationId: null });
                   else if (platformKey === "facebook") openFacebookComposer("");
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
+                  else if (platformKey === "googleBusiness") openGoogleBusinessComposer(null);
+                  else if (platformKey === "youtube") setYoutubeModalOpen(true);
                   else if (platformKey === "threads") goToComposer(postingTargets.primaryCtaPath);
                   else navigate(postingTargets.primaryCtaPath);
                 }}
@@ -240,6 +259,8 @@ export default function ConnectedPlatformDetailPage() {
                   else if (platformKey === "linkedin" && card.linkedinAction) openLinkedInComposer(card.linkedinAction);
                   else if (platformKey === "facebook") openFacebookComposer(card.facebookPageId || "");
                   else if (platformKey === "instagram") setInstagramComposerOpen(true);
+                  else if (platformKey === "googleBusiness") openGoogleBusinessComposer(card.googleBusinessPreset);
+                  else if (platformKey === "youtube") setYoutubeModalOpen(true);
                   else if (platformKey === "threads") goToComposer(card.path);
                   else navigate(card.path);
                 }}
@@ -322,6 +343,21 @@ export default function ConnectedPlatformDetailPage() {
       ) : null}
       {platformKey === "instagram" ? (
         <InstagramCreatePostModal open={instagramComposerOpen} onClose={() => setInstagramComposerOpen(false)} onPublishSuccess={bumpHistory} />
+      ) : null}
+      {platformKey === "googleBusiness" ? (
+        <GoogleBusinessCreatePostModal
+          open={googleBusinessModalOpen}
+          onClose={() => {
+            setGoogleBusinessModalOpen(false);
+            setGoogleBusinessPreset(null);
+          }}
+          account={account}
+          preset={googleBusinessPreset}
+          onPublishSuccess={bumpHistory}
+        />
+      ) : null}
+      {platformKey === "youtube" ? (
+        <YouTubeCreatePostModal open={youtubeModalOpen} onClose={() => setYoutubeModalOpen(false)} account={account} onPublishSuccess={bumpHistory} />
       ) : null}
     </section>
   );

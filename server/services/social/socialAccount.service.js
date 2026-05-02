@@ -140,6 +140,26 @@ export async function disconnectAccount(userId, platform) {
 
 export async function refreshAccountToken(userId, platform, refreshed) {
   const normalizedPlatform = normalizePlatform(platform);
+
+  if (normalizedPlatform === "googleBusiness") {
+    const docs = await SocialAccount.find({ userId, platform: "googleBusiness" });
+    if (!docs.length) {
+      throw new Error("No account connected for this platform.");
+    }
+    for (const acc of docs) {
+      acc.setEncryptedAccessToken(refreshed.accessToken);
+      if (refreshed.refreshToken) acc.setEncryptedRefreshToken(refreshed.refreshToken);
+      acc.tokenType = refreshed.tokenType || acc.tokenType;
+      acc.expiresAt = refreshed.expiresIn ? new Date(Date.now() + refreshed.expiresIn * 1000) : acc.expiresAt;
+      acc.lastSyncedAt = new Date();
+      acc.isConnected = true;
+      await acc.save();
+    }
+    const primary =
+      docs.find((d) => d.entityType === "profile") || docs.find((d) => d.isPrimary) || docs[0];
+    return mapAccount(primary);
+  }
+
   const account = await SocialAccount.findOne({ userId, platform: normalizedPlatform });
   if (!account) {
     throw new Error("No account connected for this platform.");
@@ -178,4 +198,214 @@ export async function getLinkedInOrganizationAccount(userId, organizationId) {
     entityType: "organization",
     entityId: String(organizationId),
   });
+}
+
+/**
+ * @param {import("mongodb").ObjectId} userId
+ * @returns {Promise<import("mongoose").HydratedDocument<unknown>[]>}
+ */
+export async function listYouTubeAccountsForUser(userId) {
+  return SocialAccount.find({ userId, platform: "youtube", isConnected: true }).sort({ createdAt: -1 });
+}
+
+/**
+ * Resolve which stored YouTube row to use for upload. Multiple connections require an explicit channel id.
+ * @param {import("mongodb").ObjectId} userId
+ * @param {string | undefined | null} channelIdRaw
+ * @returns {Promise<{ error: string | null, account: import("mongoose").HydratedDocument<unknown> | null, resolvedChannelId: string }>}
+ */
+export async function resolveYouTubeAccountForUpload(userId, channelIdRaw) {
+  const docs = await listYouTubeAccountsForUser(userId);
+  if (!docs.length) {
+    return { error: "not_connected", account: null, resolvedChannelId: "" };
+  }
+
+  const requested = channelIdRaw != null && String(channelIdRaw).trim() ? String(channelIdRaw).trim() : "";
+
+  if (docs.length === 1) {
+    const only = docs[0];
+    const cid = String(only.platformUserId || "").trim();
+    if (!cid) {
+      return { error: "channel_incomplete", account: null, resolvedChannelId: "" };
+    }
+    if (requested && requested !== cid) {
+      return { error: "channel_not_allowed", account: null, resolvedChannelId: "" };
+    }
+    return { error: null, account: only, resolvedChannelId: cid };
+  }
+
+  if (!requested) {
+    return { error: "channel_required", account: null, resolvedChannelId: "" };
+  }
+
+  const match = docs.find((d) => String(d.platformUserId || "").trim() === requested);
+  if (!match) {
+    return { error: "channel_not_allowed", account: null, resolvedChannelId: "" };
+  }
+
+  return { error: null, account: match, resolvedChannelId: requested };
+}
+
+/**
+ * Persist refreshed tokens on a specific social account document (needed when multiple YouTube rows exist).
+ * @param {import("mongoose").Types.ObjectId} accountId
+ * @param {{ accessToken: string, refreshToken?: string, tokenType?: string, expiresIn?: number | null }} refreshed
+ */
+export async function refreshAccountTokenById(accountId, refreshed) {
+  const account = await SocialAccount.findById(accountId);
+  if (!account) {
+    throw new Error("No account connected for this platform.");
+  }
+  account.setEncryptedAccessToken(refreshed.accessToken);
+  if (refreshed.refreshToken) account.setEncryptedRefreshToken(refreshed.refreshToken);
+  account.tokenType = refreshed.tokenType || account.tokenType;
+  account.expiresAt = refreshed.expiresIn ? new Date(Date.now() + refreshed.expiresIn * 1000) : account.expiresAt;
+  account.lastSyncedAt = new Date();
+  account.isConnected = true;
+  await account.save();
+  return mapAccount(account);
+}
+
+/** Prefer profile row; tokens are synced across all googleBusiness entity rows after refresh. */
+export async function getGoogleBusinessAccountForToken(userId) {
+  const platform = "googleBusiness";
+  return (
+    (await SocialAccount.findOne({ userId, platform, entityType: "profile" })) ||
+    (await SocialAccount.findOne({ userId, platform, isPrimary: true })) ||
+    (await SocialAccount.findOne({ userId, platform }))
+  );
+}
+
+export async function getGoogleBusinessLocationAccount(userId, locationId) {
+  if (locationId === undefined || locationId === null || String(locationId).trim() === "") return null;
+  return SocialAccount.findOne({
+    userId,
+    platform: "googleBusiness",
+    entityType: "location",
+    entityId: String(locationId).trim(),
+  });
+}
+
+const TELEGRAM_TARGET_TYPES = new Set(["channel", "group", "supergroup"]);
+const TELEGRAM_MAX_TARGETS = 40;
+const TELEGRAM_CHAT_ID_MAX = 128;
+
+function normalizeTelegramChatId(raw) {
+  const s = raw != null ? String(raw).trim() : "";
+  return s;
+}
+
+/**
+ * @param {string} chatId
+ */
+function isAllowedTelegramChatId(chatId) {
+  if (!chatId || chatId.length > TELEGRAM_CHAT_ID_MAX) return false;
+  if (chatId.includes("<") || chatId.includes(">") || chatId.includes("\n") || chatId.includes("\0")) return false;
+  if (chatId.startsWith("@")) {
+    const u = chatId.slice(1);
+    return /^[a-zA-Z0-9_]{5,32}$/.test(u);
+  }
+  return /^-?\d+$/.test(chatId);
+}
+
+/**
+ * @param {import("mongodb").ObjectId} userId
+ * @param {unknown} bodyTargets
+ */
+export async function replaceTelegramPostingTargets(userId, bodyTargets) {
+  if (!Array.isArray(bodyTargets)) {
+    const err = new Error("targets must be an array.");
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+  if (bodyTargets.length > TELEGRAM_MAX_TARGETS) {
+    const err = new Error(`You can save at most ${TELEGRAM_MAX_TARGETS} Telegram targets.`);
+    err.status = 400;
+    err.code = "validation_error";
+    throw err;
+  }
+
+  /** @type {{ chatId: string, chatTitle: string, chatType: string }[]} */
+  const cleaned = [];
+  const seen = new Set();
+
+  for (const row of bodyTargets) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    if ("__proto__" in row || "constructor" in row) {
+      const err = new Error("Invalid target entry.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    const chatId = normalizeTelegramChatId(row.chatId);
+    const chatTitle =
+      row.chatTitle != null ? String(row.chatTitle).trim().slice(0, 256) : "";
+    const chatTypeRaw =
+      row.chatType != null ? String(row.chatType).trim().toLowerCase() : "";
+    if (!chatId || !isAllowedTelegramChatId(chatId)) {
+      const err = new Error("Each target needs a valid chatId (numeric id, -100… id, or @public_username).");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!chatTitle) {
+      const err = new Error("Each target needs a chatTitle.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    if (!TELEGRAM_TARGET_TYPES.has(chatTypeRaw)) {
+      const err = new Error("chatType must be channel, group, or supergroup.");
+      err.status = 400;
+      err.code = "validation_error";
+      throw err;
+    }
+    const key = chatId;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push({ chatId, chatTitle, chatType: chatTypeRaw });
+  }
+
+  const account =
+    (await SocialAccount.findOne({ userId, platform: "telegram", entityType: "bot" })) ||
+    (await SocialAccount.findOne({ userId, platform: "telegram", isPrimary: true })) ||
+    (await SocialAccount.findOne({ userId, platform: "telegram" }));
+
+  if (!account || !account.isConnected) {
+    const err = new Error("Telegram is not connected.");
+    err.status = 400;
+    err.code = "not_connected";
+    throw err;
+  }
+
+  account.metadata = { ...(account.metadata || {}), telegramTargets: cleaned };
+  account.lastSyncedAt = new Date();
+  await account.save();
+  return mapAccount(account);
+}
+
+/**
+ * @param {import("mongodb").ObjectId} userId
+ * @param {string} chatIdRaw
+ */
+export async function resolveTelegramPostingTargetForUser(userId, chatIdRaw) {
+  const chatId = normalizeTelegramChatId(chatIdRaw);
+  if (!chatId || !isAllowedTelegramChatId(chatId)) {
+    return null;
+  }
+  const account =
+    (await SocialAccount.findOne({ userId, platform: "telegram", entityType: "bot" })) ||
+    (await SocialAccount.findOne({ userId, platform: "telegram", isPrimary: true })) ||
+    (await SocialAccount.findOne({ userId, platform: "telegram" }));
+  if (!account?.metadata || !Array.isArray(account.metadata.telegramTargets)) {
+    return null;
+  }
+  const hit = account.metadata.telegramTargets.find((t) => t && String(t.chatId).trim() === chatId);
+  if (!hit) return null;
+  return {
+    chatId: String(hit.chatId).trim(),
+    chatTitle: String(hit.chatTitle || "").trim(),
+    chatType: String(hit.chatType || "").trim().toLowerCase(),
+  };
 }
